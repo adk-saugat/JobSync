@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,6 +20,9 @@ import (
 
 	"github.com/saugatadhikari/jobSync/internal/config"
 )
+
+//go:embed oauth_client.json
+var embeddedOAuthClientJSON []byte
 
 // CurrentScopesVersion bumps when required OAuth scopes change (forces re-login).
 const CurrentScopesVersion = 2 // Sheets + Gmail readonly
@@ -50,23 +54,17 @@ type installedCredentials struct {
 	} `json:"web"`
 }
 
-// LoadOAuthConfig loads a Desktop OAuth client from client_secret.json.
+// LoadOAuthConfig loads the Desktop OAuth client.
+// Order: JOBSYNC_CLIENT_SECRET_FILE → ~/.config/jobsync/client_secret.json → embedded JobSync client.
 func LoadOAuthConfig(scopes []string) (*oauth2.Config, error) {
-	path, err := config.ClientSecretPath()
+	data, err := readOAuthClientJSON()
 	if err != nil {
-		return nil, err
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("%w: place your Desktop OAuth JSON at %s (see docs/GOOGLE_SETUP.md)", ErrMissingClientSecret, path)
-		}
 		return nil, err
 	}
 
 	var raw installedCredentials
 	if err := json.Unmarshal(data, &raw); err != nil {
-		return nil, fmt.Errorf("parse client secret: %w", err)
+		return nil, fmt.Errorf("parse OAuth client JSON: %w", err)
 	}
 
 	clientID := raw.Installed.ClientID
@@ -76,7 +74,7 @@ func LoadOAuthConfig(scopes []string) (*oauth2.Config, error) {
 		clientSecret = raw.Web.ClientSecret
 	}
 	if clientID == "" || clientSecret == "" {
-		return nil, fmt.Errorf("client_secret.json missing client_id/client_secret")
+		return nil, fmt.Errorf("OAuth client JSON missing client_id/client_secret")
 	}
 
 	return &oauth2.Config{
@@ -86,6 +84,33 @@ func LoadOAuthConfig(scopes []string) (*oauth2.Config, error) {
 		Scopes:       scopes,
 		// Redirect is set per login to the local callback server.
 	}, nil
+}
+
+func readOAuthClientJSON() ([]byte, error) {
+	if path := os.Getenv("JOBSYNC_CLIENT_SECRET_FILE"); path != "" {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("read JOBSYNC_CLIENT_SECRET_FILE: %w", err)
+		}
+		return data, nil
+	}
+
+	path, err := config.ClientSecretPath()
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(path)
+	if err == nil {
+		return data, nil
+	}
+	if !os.IsNotExist(err) {
+		return nil, err
+	}
+
+	if len(embeddedOAuthClientJSON) == 0 {
+		return nil, fmt.Errorf("%w: no embedded OAuth client and none at %s (see docs/README.md)", ErrMissingClientSecret, path)
+	}
+	return embeddedOAuthClientJSON, nil
 }
 
 // TokenFromFile loads a saved OAuth token.

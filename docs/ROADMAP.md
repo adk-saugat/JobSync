@@ -87,7 +87,7 @@ Gmail (new since last sync)
 - OAuth; create or link tracker Sheet with headers  
 - Append + update row by stable Row ID  
 - Confirm: CLI can write a test row  
-- **Done** — `jobsync init` + [docs/GOOGLE_SETUP.md](GOOGLE_SETUP.md)  
+- **Done** — `jobsync init` + [docs/README.md](README.md)  
 
 ### Phase 3 — Gmail
 - OAuth; search/read new mail since watermark  

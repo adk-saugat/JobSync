@@ -24,13 +24,7 @@ func runInit(args []string) error {
 		return err
 	}
 	fmt.Printf("config dir: %s\n", dir)
-
-	secretPath, err := config.ClientSecretPath()
-	if err != nil {
-		return err
-	}
-	fmt.Printf("Looking for Google OAuth client at:\n  %s\n", secretPath)
-	fmt.Println("(See docs/GOOGLE_SETUP.md if you have not created this file yet.)")
+	fmt.Println("Google sign-in uses the built-in JobSync OAuth app (no Cloud Console setup needed).")
 	fmt.Println()
 
 	cfg, err := config.Load()
