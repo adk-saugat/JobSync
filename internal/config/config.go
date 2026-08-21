@@ -5,15 +5,17 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 const (
-	AppName          = "jobsync"
-	ConfigFile       = "config.json"
-	DBFile           = "jobsync.db"
-	TokenFile        = "token.json"
-	ClientSecretFile = "client_secret.json"
-	DefaultSheetName = "Applications"
+	AppName            = "jobsync"
+	ConfigFile         = "config.json"
+	DBFile             = "jobsync.db"
+	TokenFile          = "token.json"
+	ClientSecretFile   = "client_secret.json"
+	DefaultSheetName   = "Applications"
+	DefaultGeminiModel = "gemini-3.6-flash"
 )
 
 // Config is persisted user settings under the config directory.
@@ -21,6 +23,7 @@ type Config struct {
 	SpreadsheetID string `json:"spreadsheet_id,omitempty"`
 	SheetName     string `json:"sheet_name,omitempty"`
 	GeminiAPIKey  string `json:"gemini_api_key,omitempty"`
+	GeminiModel   string `json:"gemini_model,omitempty"`
 	// AuthScopesVersion tracks which Google OAuth scopes were granted.
 	AuthScopesVersion int `json:"auth_scopes_version,omitempty"`
 	// SyncHour and SyncMinute are set in Phase 6 (random evening time).
@@ -97,7 +100,7 @@ func Load() (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return &Config{SheetName: DefaultSheetName}, nil
+			return &Config{SheetName: DefaultSheetName, GeminiModel: DefaultGeminiModel}, nil
 		}
 		return nil, err
 	}
@@ -108,7 +111,19 @@ func Load() (*Config, error) {
 	if cfg.SheetName == "" {
 		cfg.SheetName = DefaultSheetName
 	}
+	if cfg.GeminiModel == "" || isRetiredGeminiModel(cfg.GeminiModel) {
+		cfg.GeminiModel = DefaultGeminiModel
+	}
 	return &cfg, nil
+}
+
+func isRetiredGeminiModel(model string) bool {
+	switch strings.TrimSpace(model) {
+	case "gemini-2.0-flash", "gemini-2.0-flash-001", "gemini-1.5-flash", "gemini-1.5-flash-latest":
+		return true
+	default:
+		return false
+	}
 }
 
 // Save writes config.json with restrictive permissions.
@@ -123,9 +138,17 @@ func Save(cfg *Config) error {
 	if cfg.SheetName == "" {
 		cfg.SheetName = DefaultSheetName
 	}
+	if cfg.GeminiModel == "" || isRetiredGeminiModel(cfg.GeminiModel) {
+		cfg.GeminiModel = DefaultGeminiModel
+	}
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return err
 	}
 	return os.WriteFile(path, append(data, '\n'), 0o600)
+}
+
+// HasGeminiKey reports whether a Gemini API key is configured.
+func (c *Config) HasGeminiKey() bool {
+	return c != nil && strings.TrimSpace(c.GeminiAPIKey) != ""
 }

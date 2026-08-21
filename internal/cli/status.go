@@ -52,6 +52,12 @@ func runStatus(args []string) error {
 		fmt.Println("google auth: (not signed in — run jobsync init)")
 	}
 
+	if cfg.HasGeminiKey() {
+		fmt.Printf("gemini:      key saved (model %s)\n", cfg.GeminiModel)
+	} else {
+		fmt.Println("gemini:      (no API key — run jobsync init)")
+	}
+
 	if cfg.SyncHour != nil && cfg.SyncMinute != nil {
 		fmt.Printf("next run:    daily at %02d:%02d local\n", *cfg.SyncHour, *cfg.SyncMinute)
 	} else {

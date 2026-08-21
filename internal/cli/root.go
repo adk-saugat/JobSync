@@ -35,8 +35,8 @@ Usage:
   jobsync <command>
 
 Commands:
-  init      Google sign-in (Sheets + Gmail), create Sheet, smoke tests
-  sync      jobsync sync --emails-only   # list job emails (Phase 3)
-  status    Show DB, spreadsheet, auth, and schedule status
+  init      Google sign-in, Sheet setup, Gemini API key
+  sync      --emails-only | --extract [--limit N]
+  status    Show DB, spreadsheet, auth, Gemini, schedule
   help      Show this help`)
 }

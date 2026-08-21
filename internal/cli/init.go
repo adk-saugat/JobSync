@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -103,9 +104,45 @@ func runInit(args []string) error {
 	}
 	fmt.Printf("Gmail search: ok (%d recent candidate emails)\n", len(msgs))
 
+	if err := ensureGeminiKey(cfg); err != nil {
+		return err
+	}
+
 	fmt.Println()
 	fmt.Println("Init complete.")
 	fmt.Printf("Sheet: %s\n", sheets.SpreadsheetURL(cfg.SpreadsheetID))
-	fmt.Println("Next: ./bin/jobsync sync --emails-only")
+	fmt.Println("Next: ./bin/jobsync sync --extract --limit 2")
+	return nil
+}
+
+func ensureGeminiKey(cfg *config.Config) error {
+	if cfg.HasGeminiKey() {
+		fmt.Println("Gemini API key: already saved")
+		return nil
+	}
+
+	fmt.Println()
+	fmt.Println("Gemini (Google AI Studio) setup")
+	fmt.Println("  1. Open https://aistudio.google.com/apikey")
+	fmt.Println("  2. Create an API key")
+	fmt.Print("Paste your Gemini API key (input hidden not supported — paste carefully): ")
+
+	var key string
+	if _, err := fmt.Scanln(&key); err != nil {
+		return fmt.Errorf("read gemini api key: %w", err)
+	}
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return fmt.Errorf("gemini api key is required for Phase 4+")
+	}
+
+	cfg.GeminiAPIKey = key
+	if cfg.GeminiModel == "" {
+		cfg.GeminiModel = config.DefaultGeminiModel
+	}
+	if err := config.Save(cfg); err != nil {
+		return err
+	}
+	fmt.Println("Gemini API key: saved to config.json")
 	return nil
 }

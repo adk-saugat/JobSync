@@ -12,8 +12,8 @@ import (
 	"google.golang.org/api/option"
 )
 
-// DefaultQuery is a conservative V1 search for job-related mail.
-const DefaultQuery = `(application OR applied OR interview OR "coding challenge" OR assessment OR "online assessment" OR OA OR unfortunately OR "next steps" OR offer OR recruiter) newer_than:14d -category:promotions`
+// DefaultQuery targets application-status style mail (not general job marketing).
+const DefaultQuery = `("thank you for applying" OR "thanks for applying" OR "application received" OR "application status" OR "unfortunately" OR "not moving forward" OR "no longer being considered" OR interview OR "coding challenge" OR "online assessment" OR hackerrank OR codesignal OR "take-home" OR "we are pleased to offer" OR "offer letter" OR "next steps in your application") newer_than:14d -category:promotions -category:social`
 
 // MessageMeta is lightweight search result data.
 type MessageMeta struct {
@@ -188,19 +188,48 @@ func stripTags(s string) string {
 	return strings.TrimSpace(b.String())
 }
 
-// LooksJobRelated is a cheap local pre-filter before Gemini (Phase 4+).
-func LooksJobRelated(subject, from string) bool {
+// LooksLikeStatusUpdate is a cheap local pre-filter before Gemini.
+// It aims for real application updates (applied / OA / interview / rejected / offer),
+// not generic job marketing or vague "job related" mail.
+func LooksLikeStatusUpdate(subject, from string) bool {
 	s := strings.ToLower(subject + " " + from)
-	keywords := []string{
-		"application", "applied", "interview", "assessment", "coding challenge",
-		"hackerrank", "codesignal", "oa ", " online assessment", "unfortunately",
-		"next steps", "offer", "recruiter", "candidacy", "position", "role",
-		"thank you for applying", "thanks for applying", "move forward",
+
+	// Obvious noise — never send these to Gemini.
+	deny := []string{
+		"job alert", "jobs for you", "jobs you may", "recommended jobs",
+		"new jobs", "weekly jobs", "daily jobs", "job digest",
+		"newsletter", "unsubscribe from job", "people also viewed",
+		"profile views", "who viewed your profile", "complete your profile",
+		"finish setting up", "verify your email", "welcome to linkedin",
+		"glassdoor", "indeed job", "ziprecruiter",
 	}
-	for _, k := range keywords {
+	for _, k := range deny {
+		if strings.Contains(s, k) {
+			return false
+		}
+	}
+
+	allow := []string{
+		"thank you for applying", "thanks for applying", "application received",
+		"application status", "your application", "we received your application",
+		"unfortunately", "not moving forward", "no longer being considered",
+		"decided not to", "will not be moving", "other candidates",
+		"interview", "phone screen", "onsite", "schedule a call",
+		"coding challenge", "online assessment", "hackerrank", "codesignal",
+		"take-home", "assessment invite", "oa invitation",
+		"offer letter", "pleased to offer", "job offer", "extend an offer",
+		"next steps in your application", "move forward with your application",
+		"candidacy",
+	}
+	for _, k := range allow {
 		if strings.Contains(s, k) {
 			return true
 		}
 	}
 	return false
+}
+
+// LooksJobRelated is kept as an alias for older call sites / tests.
+func LooksJobRelated(subject, from string) bool {
+	return LooksLikeStatusUpdate(subject, from)
 }

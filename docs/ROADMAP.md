@@ -98,6 +98,7 @@ Gmail (new since last sync)
 - User’s AI Studio key from `init`  
 - Extract JSON; handle free-tier quota errors  
 - Confirm: 1–2 emails extract correctly  
+- **Done** — `jobsync sync --extract --limit 2`  
 
 ### Phase 5 — Daily sync (core V1)
 - Wire full `jobsync sync`  
