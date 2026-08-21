@@ -1,0 +1,27 @@
+.DS_Store
+
+# Binaries
+/bin/
+/dist/
+/jobsync
+*.exe
+
+# Local / user secrets (never commit)
+.env
+.env.*
+!.env.example
+*.pem
+*credentials*.json
+*token*.json
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Go
+vendor/
