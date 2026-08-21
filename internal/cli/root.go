@@ -35,8 +35,8 @@ Usage:
   jobsync <command>
 
 Commands:
-  init      Connect Google (Gmail + Sheets), save Gemini API key, enable daily sync
+  init      Google sign-in, create Sheet, write test row (Phase 2)
   sync      Run one sync now
-  status    Show last sync, next run time, and pending work
+  status    Show DB, spreadsheet, auth, and schedule status
   help      Show this help`)
 }

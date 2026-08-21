@@ -4,18 +4,17 @@ CLI that checks Gmail for job application emails once a day, extracts details wi
 
 ## Status
 
-**Phase 1** — SQLite storage + models. CLI commands `init` / `sync` are still stubs; `status` opens the local DB.
+**Phase 2** — Google Sheets via OAuth. Run `jobsync init` after Google setup.
 
 ## Requirements
 
 - Go 1.22+
+- Google Cloud OAuth Desktop client (see [docs/GOOGLE_SETUP.md](docs/GOOGLE_SETUP.md))
 
 ## Build
 
 ```bash
 make build
-# or
-go build -o bin/jobsync ./cmd/jobsync
 ```
 
 ## Test
@@ -27,13 +26,13 @@ make test
 ## Commands
 
 ```bash
-./bin/jobsync init      # setup (later)
+./bin/jobsync init      # Google login + create/update Sheet + smoke test row
 ./bin/jobsync sync      # run sync (later)
-./bin/jobsync status    # shows config/DB path and opens SQLite
+./bin/jobsync status    # config, DB, spreadsheet, auth
 ./bin/jobsync help
 ```
 
-Local data lives under `~/.config/jobsync/` (override with `JOBSYNC_CONFIG_DIR`).
+Local data: `~/.config/jobsync/` (override with `JOBSYNC_CONFIG_DIR`).
 
 ## Roadmap
 

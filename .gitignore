@@ -13,6 +13,7 @@
 *.pem
 *credentials*.json
 *token*.json
+client_secret.json
 *.db
 *.db-journal
 *.db-wal

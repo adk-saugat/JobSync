@@ -1,16 +1,30 @@
 package config
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 )
 
 const (
-	AppName    = "jobsync"
-	ConfigFile = "config.yaml"
-	DBFile     = "jobsync.db"
-	TokenFile  = "token.json"
+	AppName          = "jobsync"
+	ConfigFile       = "config.json"
+	DBFile           = "jobsync.db"
+	TokenFile        = "token.json"
+	ClientSecretFile = "client_secret.json"
+	DefaultSheetName = "Applications"
 )
+
+// Config is persisted user settings under the config directory.
+type Config struct {
+	SpreadsheetID string `json:"spreadsheet_id,omitempty"`
+	SheetName     string `json:"sheet_name,omitempty"`
+	GeminiAPIKey  string `json:"gemini_api_key,omitempty"`
+	// SyncHour and SyncMinute are set in Phase 6 (random evening time).
+	SyncHour   *int `json:"sync_hour,omitempty"`
+	SyncMinute *int `json:"sync_minute,omitempty"`
+}
 
 // Dir returns the JobSync config directory (~/.config/jobsync).
 func Dir() (string, error) {
@@ -43,4 +57,73 @@ func DBPath() (string, error) {
 		return "", err
 	}
 	return filepath.Join(dir, DBFile), nil
+}
+
+// TokenPath returns the OAuth token path.
+func TokenPath() (string, error) {
+	dir, err := Dir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, TokenFile), nil
+}
+
+// ClientSecretPath returns the Google OAuth client secret JSON path.
+func ClientSecretPath() (string, error) {
+	dir, err := Dir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, ClientSecretFile), nil
+}
+
+// ConfigPath returns the path to config.json.
+func ConfigPath() (string, error) {
+	dir, err := Dir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, ConfigFile), nil
+}
+
+// Load reads config.json, or returns empty config if missing.
+func Load() (*Config, error) {
+	path, err := ConfigPath()
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return &Config{SheetName: DefaultSheetName}, nil
+		}
+		return nil, err
+	}
+	var cfg Config
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("parse config: %w", err)
+	}
+	if cfg.SheetName == "" {
+		cfg.SheetName = DefaultSheetName
+	}
+	return &cfg, nil
+}
+
+// Save writes config.json with restrictive permissions.
+func Save(cfg *Config) error {
+	if _, err := EnsureDir(); err != nil {
+		return err
+	}
+	path, err := ConfigPath()
+	if err != nil {
+		return err
+	}
+	if cfg.SheetName == "" {
+		cfg.SheetName = DefaultSheetName
+	}
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(data, '\n'), 0o600)
 }
