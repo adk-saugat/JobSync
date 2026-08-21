@@ -92,6 +92,7 @@ Gmail (new since last sync)
 ### Phase 3 — Gmail
 - OAuth; search/read new mail since watermark  
 - Confirm: list new emails with **no** Gemini calls  
+- **Done** — `jobsync sync --emails-only` (+ enable Gmail API)  
 
 ### Phase 4 — Gemini
 - User’s AI Studio key from `init`  

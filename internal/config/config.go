@@ -21,6 +21,8 @@ type Config struct {
 	SpreadsheetID string `json:"spreadsheet_id,omitempty"`
 	SheetName     string `json:"sheet_name,omitempty"`
 	GeminiAPIKey  string `json:"gemini_api_key,omitempty"`
+	// AuthScopesVersion tracks which Google OAuth scopes were granted.
+	AuthScopesVersion int `json:"auth_scopes_version,omitempty"`
 	// SyncHour and SyncMinute are set in Phase 6 (random evening time).
 	SyncHour   *int `json:"sync_hour,omitempty"`
 	SyncMinute *int `json:"sync_minute,omitempty"`

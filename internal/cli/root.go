@@ -35,8 +35,8 @@ Usage:
   jobsync <command>
 
 Commands:
-  init      Google sign-in, create Sheet, write test row (Phase 2)
-  sync      Run one sync now
+  init      Google sign-in (Sheets + Gmail), create Sheet, smoke tests
+  sync      jobsync sync --emails-only   # list job emails (Phase 3)
   status    Show DB, spreadsheet, auth, and schedule status
   help      Show this help`)
 }

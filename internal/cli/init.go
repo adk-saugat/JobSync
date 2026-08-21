@@ -3,11 +3,13 @@ package cli
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/saugatadhikari/jobSync/internal/auth"
 	"github.com/saugatadhikari/jobSync/internal/config"
+	"github.com/saugatadhikari/jobSync/internal/gmail"
 	"github.com/saugatadhikari/jobSync/internal/models"
 	"github.com/saugatadhikari/jobSync/internal/sheets"
 )
@@ -30,16 +32,16 @@ func runInit(args []string) error {
 	fmt.Println("(See docs/GOOGLE_SETUP.md if you have not created this file yet.)")
 	fmt.Println()
 
-	httpClient, err := auth.HTTPClient(ctx, auth.SheetsScopes)
-	if err != nil {
-		return err
-	}
-	fmt.Println("Google sign-in: ok")
-
 	cfg, err := config.Load()
 	if err != nil {
 		return err
 	}
+
+	httpClient, err := auth.EnsureScopes(ctx, cfg, auth.RequiredScopes, auth.CurrentScopesVersion)
+	if err != nil {
+		return err
+	}
+	fmt.Println("Google sign-in: ok (Sheets + Gmail)")
 
 	if cfg.SpreadsheetID == "" {
 		fmt.Println("Creating JobSync tracker spreadsheet...")
@@ -71,12 +73,12 @@ func runInit(args []string) error {
 
 	rowID := uuid.NewString()
 	testRow := sheets.Row{
-		RowID:       rowID,
-		Company:     "Phase2 Test Co",
-		Position:    "Software Engineer",
-		Status:      models.StatusApplied,
-		AppliedAt:   "2026-08-01",
-		Notes:       "Created by jobsync init",
+		RowID:     rowID,
+		Company:   "Phase2 Test Co",
+		Position:  "Software Engineer",
+		Status:    models.StatusApplied,
+		AppliedAt: "2026-08-01",
+		Notes:     "Created by jobsync init",
 	}
 	if err := client.AppendRow(ctx, testRow); err != nil {
 		return fmt.Errorf("append test row: %w", err)
@@ -91,9 +93,19 @@ func runInit(args []string) error {
 	}
 	fmt.Println("Updated test row by Row ID → interview")
 
+	gclient, err := gmail.NewClient(ctx, httpClient)
+	if err != nil {
+		return err
+	}
+	msgs, err := gclient.Search(ctx, gmail.DefaultQuery, 5, time.Time{})
+	if err != nil {
+		return fmt.Errorf("gmail search (enable Gmail API in Google Cloud if this fails): %w", err)
+	}
+	fmt.Printf("Gmail search: ok (%d recent candidate emails)\n", len(msgs))
+
 	fmt.Println()
-	fmt.Println("Phase 2 setup complete.")
+	fmt.Println("Init complete.")
 	fmt.Printf("Sheet: %s\n", sheets.SpreadsheetURL(cfg.SpreadsheetID))
-	fmt.Println("You should see: Company…Notes only (no Row ID), taller rows, wrapped text.")
+	fmt.Println("Next: ./bin/jobsync sync --emails-only")
 	return nil
 }

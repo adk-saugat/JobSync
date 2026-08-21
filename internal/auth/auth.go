@@ -14,12 +14,22 @@ import (
 
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
+	"google.golang.org/api/gmail/v1"
 	"google.golang.org/api/sheets/v4"
 
 	"github.com/saugatadhikari/jobSync/internal/config"
 )
 
-// SheetsScopes are enough for Phase 2 (tracker read/write).
+// CurrentScopesVersion bumps when required OAuth scopes change (forces re-login).
+const CurrentScopesVersion = 2 // Sheets + Gmail readonly
+
+// RequiredScopes are used by init/sync for Sheets + Gmail.
+var RequiredScopes = []string{
+	sheets.SpreadsheetsScope,
+	gmail.GmailReadonlyScope,
+}
+
+// SheetsScopes are Sheets-only (legacy Phase 2).
 var SheetsScopes = []string{
 	sheets.SpreadsheetsScope,
 }
@@ -193,6 +203,19 @@ func Login(ctx context.Context, scopes []string) (*oauth2.Token, error) {
 	return tok, nil
 }
 
+// ClearToken removes the saved OAuth token (forces the next login).
+func ClearToken() error {
+	path, err := config.TokenPath()
+	if err != nil {
+		return err
+	}
+	err = os.Remove(path)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
 // HTTPClient returns an authenticated HTTP client, refreshing/saving tokens as needed.
 // If no token exists, it runs Login.
 func HTTPClient(ctx context.Context, scopes []string) (*http.Client, error) {
@@ -213,12 +236,30 @@ func HTTPClient(ctx context.Context, scopes []string) (*http.Client, error) {
 	}
 
 	tokenSource := cfg.TokenSource(ctx, tok)
-	// Persist refreshed tokens.
 	returning := &persistTokenSource{
 		base: oauth2.ReuseTokenSource(tok, tokenSource),
 		tok:  tok,
 	}
 	return oauth2.NewClient(ctx, returning), nil
+}
+
+// EnsureScopes returns an HTTP client with the required scopes.
+// If the saved auth version is older, it clears the token and re-runs Login.
+func EnsureScopes(ctx context.Context, cfg *config.Config, scopes []string, scopesVersion int) (*http.Client, error) {
+	if cfg.AuthScopesVersion < scopesVersion {
+		fmt.Println("Google permissions updated — please sign in again (Sheets + Gmail)...")
+		if err := ClearToken(); err != nil {
+			return nil, err
+		}
+		if _, err := Login(ctx, scopes); err != nil {
+			return nil, err
+		}
+		cfg.AuthScopesVersion = scopesVersion
+		if err := config.Save(cfg); err != nil {
+			return nil, err
+		}
+	}
+	return HTTPClient(ctx, scopes)
 }
 
 type persistTokenSource struct {

@@ -4,12 +4,12 @@ CLI that checks Gmail for job application emails once a day, extracts details wi
 
 ## Status
 
-**Phase 2** — Google Sheets via OAuth. Run `jobsync init` after Google setup.
+**Phase 3** — Gmail search/read. Use `jobsync sync --emails-only` (no Gemini yet).
 
 ## Requirements
 
 - Go 1.22+
-- Google Cloud OAuth Desktop client (see [docs/GOOGLE_SETUP.md](docs/GOOGLE_SETUP.md))
+- Google Cloud: Sheets API + Gmail API + Desktop OAuth client ([docs/GOOGLE_SETUP.md](docs/GOOGLE_SETUP.md))
 
 ## Build
 
@@ -26,9 +26,9 @@ make test
 ## Commands
 
 ```bash
-./bin/jobsync init      # Google login + create/update Sheet + smoke test row
-./bin/jobsync sync      # run sync (later)
-./bin/jobsync status    # config, DB, spreadsheet, auth
+./bin/jobsync init                 # Google login (Sheets + Gmail) + Sheet setup
+./bin/jobsync sync --emails-only   # list job-like emails (no Gemini)
+./bin/jobsync status
 ./bin/jobsync help
 ```
 
