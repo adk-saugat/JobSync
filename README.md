@@ -4,7 +4,7 @@ CLI that checks Gmail for job application emails once a day, extracts details wi
 
 ## Status
 
-**Phase 0** — project skeleton. Commands are stubs.
+**Phase 1** — SQLite storage + models. CLI commands `init` / `sync` are still stubs; `status` opens the local DB.
 
 ## Requirements
 
@@ -18,14 +18,22 @@ make build
 go build -o bin/jobsync ./cmd/jobsync
 ```
 
-## Commands (stubs for now)
+## Test
+
+```bash
+make test
+```
+
+## Commands
 
 ```bash
 ./bin/jobsync init      # setup (later)
 ./bin/jobsync sync      # run sync (later)
-./bin/jobsync status    # status (later)
+./bin/jobsync status    # shows config/DB path and opens SQLite
 ./bin/jobsync help
 ```
+
+Local data lives under `~/.config/jobsync/` (override with `JOBSYNC_CONFIG_DIR`).
 
 ## Roadmap
 

@@ -81,6 +81,7 @@ Gmail (new since last sync)
 - Local DB file (e.g. `~/.config/jobsync/jobsync.db`)  
 - Tables: applications, email_processed, sync_runs  
 - Confirm: can insert/read rows  
+- **Done** — see `internal/db` + `make test`  
 
 ### Phase 2 — Google Sheets
 - OAuth; create or link tracker Sheet with headers  
