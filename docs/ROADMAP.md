@@ -104,6 +104,7 @@ Gmail (new since last sync)
 - Wire full `jobsync sync`  
 - Watermark + “continue tomorrow” if quota/emails remain  
 - Confirm: one run updates Sheet; second run doesn’t duplicate  
+- **Done** — `jobsync sync` (+ `--dry-run`, `--limit`)  
 
 ### Phase 6 — Auto schedule + polish
 - During `init`, pick a **random time once** in an evening window (e.g. 8:00–11:00 PM local), save it in config, install OS cron/launchd  

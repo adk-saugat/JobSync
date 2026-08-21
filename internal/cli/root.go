@@ -36,7 +36,7 @@ Usage:
 
 Commands:
   init      Google sign-in, Sheet setup, Gemini API key
-  sync      --emails-only | --extract [--limit N]
+  sync      Full sync (or --emails-only / --extract / --dry-run)
   status    Show DB, spreadsheet, auth, Gemini, schedule
   help      Show this help`)
 }

@@ -4,12 +4,12 @@ CLI that checks Gmail for job application emails once a day, extracts details wi
 
 ## Status
 
-**Phase 4** — Gemini extraction. Use `jobsync sync --extract --limit 2`.
+**Phase 5** — full sync works end-to-end.
 
 ## Requirements
 
 - Go 1.22+
-- Google Cloud: Sheets + Gmail APIs ([docs/GOOGLE_SETUP.md](docs/GOOGLE_SETUP.md))
+- Google Cloud: Sheets + Gmail ([docs/GOOGLE_SETUP.md](docs/GOOGLE_SETUP.md))
 - Gemini API key ([docs/GEMINI_SETUP.md](docs/GEMINI_SETUP.md))
 
 ## Build
@@ -27,9 +27,10 @@ make test
 ## Commands
 
 ```bash
-./bin/jobsync init                      # Google login + Gemini key
-./bin/jobsync sync --emails-only        # list emails (no Gemini)
-./bin/jobsync sync --extract --limit 2  # Gemini extract (no Sheet writes)
+./bin/jobsync init
+./bin/jobsync sync --dry-run --limit 5   # preview, no writes
+./bin/jobsync sync --limit 10            # real sync → Sheet + SQLite
+./bin/jobsync sync                       # default max 15 Gemini calls
 ./bin/jobsync status
 ```
 
