@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/saugatadhikari/jobSync/internal/auth"
+	"github.com/saugatadhikari/jobSync/internal/google/auth"
 	"github.com/saugatadhikari/jobSync/internal/config"
-	"github.com/saugatadhikari/jobSync/internal/gmail"
-	"github.com/saugatadhikari/jobSync/internal/llm"
+	"github.com/saugatadhikari/jobSync/internal/google/gmail"
+	"github.com/saugatadhikari/jobSync/internal/gemini"
 )
 
 func runSync(args []string) error {
@@ -140,7 +140,7 @@ func extractJobEmails(limit int64) error {
 	if err != nil {
 		return err
 	}
-	llmClient, err := llm.NewClient(llm.Options{
+	geminiClient, err := gemini.NewClient(gemini.Options{
 		APIKey: cfg.GeminiAPIKey,
 		Model:  cfg.GeminiModel,
 	})
@@ -179,7 +179,7 @@ func extractJobEmails(limit int64) error {
 		fmt.Printf("Email: %s\n", msg.Subject)
 		fmt.Printf("From:  %s\n", msg.From)
 
-		ext, err := llmClient.Extract(ctx, llm.EmailInput{
+		ext, err := geminiClient.Extract(ctx, gemini.EmailInput{
 			Subject: msg.Subject,
 			From:    msg.From,
 			Date:    msg.Date,
@@ -187,7 +187,7 @@ func extractJobEmails(limit int64) error {
 		})
 		geminiCalls++
 		if err != nil {
-			if errors.Is(err, llm.ErrQuotaExceeded) {
+			if errors.Is(err, gemini.ErrQuotaExceeded) {
 				fmt.Printf("Gemini quota hit after %d calls — stop for today.\n", geminiCalls)
 				return err
 			}
@@ -199,8 +199,8 @@ func extractJobEmails(limit int64) error {
 		fmt.Printf("Result:\n  %s\n", string(pretty))
 		if !ext.IsJobRelated {
 			fmt.Println("→ ignored (not job related)")
-		} else if ext.Confidence < llmClient.MinConfidence() {
-			fmt.Printf("→ low confidence (%.2f < %.2f)\n", ext.Confidence, llmClient.MinConfidence())
+		} else if ext.Confidence < geminiClient.MinConfidence() {
+			fmt.Printf("→ low confidence (%.2f < %.2f)\n", ext.Confidence, geminiClient.MinConfidence())
 		} else {
 			fmt.Printf("→ would upsert: %s / %s [%s]\n", ext.Company, ext.Position, ext.Status)
 		}

@@ -57,9 +57,9 @@ If you already signed in during Phase 2 (Sheets only), init will ask you to **si
 
 ### Sheet columns (what you see)
 
-| Company | Position | Status | Applied At | Interview At | OA At | Notes |
+| Company | Position | Status | Applied At | Interview At | Assessment At | Notes |
 
-Row ID is stored in a **hidden** first column so the app can update the correct row. Status values (color-coded): `applied`, `oa`, `interview`, `rejected`, `offer`, `other`.
+Row ID is hidden. Whole-row colors: rejected (red), interview (blue), assessment (amber), accepted (green). No status dropdown — the app writes status for you.
 
 ## 7. List emails (Phase 3 check)
 

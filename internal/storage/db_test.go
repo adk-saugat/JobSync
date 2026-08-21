@@ -1,4 +1,4 @@
-package db_test
+package storage_test
 
 import (
 	"context"
@@ -6,25 +6,25 @@ import (
 	"testing"
 	"time"
 
-	"github.com/saugatadhikari/jobSync/internal/db"
-	"github.com/saugatadhikari/jobSync/internal/models"
+	"github.com/saugatadhikari/jobSync/internal/storage"
+	"github.com/saugatadhikari/jobSync/internal/domain"
 )
 
 func TestCreateAndGetApplication(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "test.db")
 
-	database, err := db.Open(path)
+	database, err := storage.Open(path)
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
-	t.Cleanup(func() { _ = db.Close(database) })
+	t.Cleanup(func() { _ = storage.Close(database) })
 
 	applied := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
-	app := &models.Application{
+	app := &domain.Application{
 		Company:       "Acme Corp",
 		Position:      "Software Engineer",
-		Status:        models.StatusApplied,
+		Status:        domain.StatusApplied,
 		AppliedAt:     &applied,
 		SourceEmailID: "gmail-msg-1",
 		SheetRowID:    "row-uuid-1",
@@ -47,7 +47,7 @@ func TestCreateAndGetApplication(t *testing.T) {
 	if got.Company != "Acme Corp" || got.Position != "Software Engineer" {
 		t.Fatalf("unexpected app: %+v", got)
 	}
-	if got.Status != models.StatusApplied {
+	if got.Status != domain.StatusApplied {
 		t.Fatalf("status = %q", got.Status)
 	}
 	if got.SourceEmailID != "gmail-msg-1" {
@@ -69,16 +69,16 @@ func TestEmailProcessedAndSyncRun(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "test.db")
 
-	database, err := db.Open(path)
+	database, err := storage.Open(path)
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
-	t.Cleanup(func() { _ = db.Close(database) })
+	t.Cleanup(func() { _ = storage.Close(database) })
 
-	app := &models.Application{
+	app := &domain.Application{
 		Company:  "Beta",
 		Position: "Intern",
-		Status:   models.StatusOA,
+		Status:   domain.StatusAssessment,
 	}
 	if err := database.CreateApplication(ctx, app); err != nil {
 		t.Fatalf("create app: %v", err)
@@ -90,10 +90,10 @@ func TestEmailProcessedAndSyncRun(t *testing.T) {
 	}
 
 	appID := app.ID
-	if err := database.MarkEmailProcessed(ctx, models.EmailProcessed{
+	if err := database.MarkEmailProcessed(ctx, domain.EmailProcessed{
 		GmailMessageID: "msg-2",
 		ApplicationID:  &appID,
-		Classification: models.ClassificationJobUpdate,
+		Classification: domain.ClassificationJobUpdate,
 	}); err != nil {
 		t.Fatalf("mark: %v", err)
 	}
@@ -103,8 +103,8 @@ func TestEmailProcessedAndSyncRun(t *testing.T) {
 		t.Fatalf("expected processed, got %v err=%v", processed, err)
 	}
 
-	run := &models.SyncRun{
-		Status:    models.SyncStatusSuccess,
+	run := &domain.SyncRun{
+		Status:    domain.SyncStatusSuccess,
 		Watermark: "wm-100",
 	}
 	if err := database.CreateSyncRun(ctx, run); err != nil {

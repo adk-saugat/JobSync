@@ -5,8 +5,8 @@ import (
 	"os"
 
 	"github.com/saugatadhikari/jobSync/internal/config"
-	"github.com/saugatadhikari/jobSync/internal/db"
-	"github.com/saugatadhikari/jobSync/internal/sheets"
+	"github.com/saugatadhikari/jobSync/internal/storage"
+	"github.com/saugatadhikari/jobSync/internal/google/sheets"
 )
 
 func runStatus(args []string) error {
@@ -24,11 +24,11 @@ func runStatus(args []string) error {
 	fmt.Printf("config dir: %s\n", dir)
 	fmt.Printf("database:   %s\n", dbPath)
 
-	database, err := db.Open(dbPath)
+	database, err := storage.Open(dbPath)
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)
 	}
-	defer func() { _ = db.Close(database) }()
+	defer func() { _ = storage.Close(database) }()
 	fmt.Println("database:   ok")
 
 	cfg, err := config.Load()

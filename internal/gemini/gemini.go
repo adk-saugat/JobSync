@@ -1,4 +1,4 @@
-package llm
+package gemini
 
 import (
 	"bytes"
@@ -12,7 +12,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/saugatadhikari/jobSync/internal/models"
+	"github.com/saugatadhikari/jobSync/internal/domain"
 )
 
 const (
@@ -209,12 +209,16 @@ func normalizeExtraction(ext *Extraction) {
 	ext.IgnoreReason = strings.TrimSpace(ext.IgnoreReason)
 	ext.Status = strings.ToLower(strings.TrimSpace(ext.Status))
 	switch ext.Status {
-	case models.StatusApplied, models.StatusOA, models.StatusInterview,
-		models.StatusRejected, models.StatusOffer, models.StatusOther:
+	case "oa":
+		ext.Status = domain.StatusAssessment
+	case "offer":
+		ext.Status = domain.StatusAccepted
+	case domain.StatusApplied, domain.StatusAssessment, domain.StatusInterview,
+		domain.StatusRejected, domain.StatusAccepted, domain.StatusOther:
 		// ok
 	default:
 		if ext.IsJobRelated {
-			ext.Status = models.StatusOther
+			ext.Status = domain.StatusOther
 		}
 	}
 }
@@ -243,19 +247,19 @@ Return ONLY valid JSON matching the schema. No markdown.
 
 Set is_job_related=true ONLY when the email is clearly one of:
 - application received / thanks for applying
-- online assessment (OA) / coding challenge invite
+- online assessment / coding challenge invite
 - interview invite or interview scheduling
 - rejection / not moving forward
-- offer
+- offer / accepted
 
 Set is_job_related=false for everything else, including:
 - job alerts, digests, "jobs you might like"
 - newsletters, marketing, recruiter blasts without a specific application update
 - profile/account setup reminders
-- generic "stay in consideration" marketing that is not a real interview/OA/status update for a specific role
+- generic "stay in consideration" marketing that is not a real interview/assessment/status update for a specific role
 - LinkedIn/Indeed/Glassdoor notifications that are not status changes
 
-Allowed status values when is_job_related=true: applied, oa, interview, rejected, offer, other.
+Allowed status values when is_job_related=true: applied, assessment, interview, rejected, accepted, other.
 Keep summary to one short sentence. Prefer null for unknown dates.
 Use ISO dates when possible (YYYY-MM-DD or RFC3339).`
 
@@ -280,12 +284,14 @@ JSON schema:
   "ignore_reason": null
 }
 
+Note: oa_at means the assessment / coding-challenge date.
+
 Status mapping (only if is_job_related=true):
 - thanks for applying / application received -> applied
-- OA / HackerRank / CodeSignal / coding challenge -> oa
+- HackerRank / CodeSignal / coding challenge / online assessment -> assessment
 - interview invite / schedule -> interview
 - reject / unfortunately / not selected -> rejected
-- offer -> offer
+- offer -> accepted
 
 If it is NOT a clear status update for a specific application, return:
 {"is_job_related":false,"company":"","position":"","status":"other","applied_at":null,"interview_at":null,"oa_at":null,"confidence":0.9,"summary":"","ignore_reason":"not a status update"}

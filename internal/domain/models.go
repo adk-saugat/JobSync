@@ -1,15 +1,20 @@
-package models
+// Package domain holds core JobSync types and status constants.
+package domain
 
 import "time"
 
 // Application status values written to SQLite and Google Sheets.
 const (
-	StatusApplied   = "applied"
-	StatusOA        = "oa"
-	StatusInterview = "interview"
-	StatusRejected  = "rejected"
-	StatusOffer     = "offer"
-	StatusOther     = "other"
+	StatusApplied     = "applied"
+	StatusAssessment  = "assessment" // online assessment / coding challenge
+	StatusInterview   = "interview"
+	StatusRejected    = "rejected"
+	StatusAccepted    = "accepted" // offer accepted / offer received
+	StatusOther       = "other"
+
+	// Deprecated aliases (still recognized when reading old data / model output).
+	StatusOA    = StatusAssessment
+	StatusOffer = StatusAccepted
 )
 
 // EmailClassification values for email_processed.

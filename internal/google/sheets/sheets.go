@@ -9,7 +9,7 @@ import (
 	"google.golang.org/api/option"
 	gapi "google.golang.org/api/sheets/v4"
 
-	"github.com/saugatadhikari/jobSync/internal/models"
+	"github.com/saugatadhikari/jobSync/internal/domain"
 )
 
 // VisibleHeaders are the columns users see (B–H). Column A is Row ID (hidden).
@@ -19,21 +19,12 @@ var VisibleHeaders = []string{
 	"Status",
 	"Applied At",
 	"Interview At",
-	"OA At",
+	"Assessment At",
 	"Notes",
 }
 
 // Headers is the full header row written to the sheet (includes hidden Row ID).
 var Headers = append([]string{"Row ID"}, VisibleHeaders...)
-
-var statusChoices = []string{
-	models.StatusApplied,
-	models.StatusOA,
-	models.StatusInterview,
-	models.StatusRejected,
-	models.StatusOffer,
-	models.StatusOther,
-}
 
 // Row is one tracker row written to Google Sheets.
 type Row struct {
@@ -43,7 +34,7 @@ type Row struct {
 	Status      string
 	AppliedAt   string
 	InterviewAt string
-	OAAt        string
+	OAAt        string // Assessment At column (online assessment date)
 	Notes       string
 }
 
@@ -141,7 +132,7 @@ func (c *Client) EnsureHeaders(ctx context.Context) error {
 	return nil
 }
 
-// ApplyFormatting styles the tracker and hides the Row ID column.
+// ApplyFormatting keeps the sheet minimal: hidden Row ID, plain header, whole-row status colors.
 func (c *Client) ApplyFormatting(ctx context.Context) error {
 	sheetID, err := c.sheetID(ctx)
 	if err != nil {
@@ -149,7 +140,6 @@ func (c *Client) ApplyFormatting(ctx context.Context) error {
 	}
 
 	requests := []*gapi.Request{
-		// Freeze header row.
 		{
 			UpdateSheetProperties: &gapi.UpdateSheetPropertiesRequest{
 				Properties: &gapi.SheetProperties{
@@ -161,7 +151,7 @@ func (c *Client) ApplyFormatting(ctx context.Context) error {
 				Fields: "gridProperties.frozenRowCount",
 			},
 		},
-		// Hide Row ID column (A) — still used by the app for updates.
+		// Hide Row ID column (A).
 		{
 			UpdateDimensionProperties: &gapi.UpdateDimensionPropertiesRequest{
 				Range: &gapi.DimensionRange{
@@ -174,33 +164,7 @@ func (c *Client) ApplyFormatting(ctx context.Context) error {
 				Fields:     "hiddenByUser",
 			},
 		},
-		// Taller data rows so wrapped text is readable.
-		{
-			UpdateDimensionProperties: &gapi.UpdateDimensionPropertiesRequest{
-				Range: &gapi.DimensionRange{
-					SheetId:    sheetID,
-					Dimension:  "ROWS",
-					StartIndex: 1,
-					EndIndex:   2000,
-				},
-				Properties: &gapi.DimensionProperties{PixelSize: 48},
-				Fields:     "pixelSize",
-			},
-		},
-		// Header row height.
-		{
-			UpdateDimensionProperties: &gapi.UpdateDimensionPropertiesRequest{
-				Range: &gapi.DimensionRange{
-					SheetId:    sheetID,
-					Dimension:  "ROWS",
-					StartIndex: 0,
-					EndIndex:   1,
-				},
-				Properties: &gapi.DimensionProperties{PixelSize: 36},
-				Fields:     "pixelSize",
-			},
-		},
-		// Header style (full A–H, including hidden Row ID).
+		// Plain header: bold only, no fill color.
 		{
 			RepeatCell: &gapi.RepeatCellRequest{
 				Range: &gapi.GridRange{
@@ -212,20 +176,42 @@ func (c *Client) ApplyFormatting(ctx context.Context) error {
 				},
 				Cell: &gapi.CellData{
 					UserEnteredFormat: &gapi.CellFormat{
-						BackgroundColor: &gapi.Color{Red: 0.12, Green: 0.16, Blue: 0.23},
+						BackgroundColor: &gapi.Color{Red: 1, Green: 1, Blue: 1},
 						TextFormat: &gapi.TextFormat{
 							Bold:            true,
-							ForegroundColor: &gapi.Color{Red: 1, Green: 1, Blue: 1},
+							ForegroundColor: &gapi.Color{Red: 0, Green: 0, Blue: 0},
 						},
-						HorizontalAlignment: "CENTER",
-						VerticalAlignment:   "MIDDLE",
-						WrapStrategy:        "WRAP",
+						VerticalAlignment: "MIDDLE",
 					},
 				},
-				Fields: "userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,verticalAlignment,wrapStrategy)",
+				Fields: "userEnteredFormat(backgroundColor,textFormat,verticalAlignment)",
 			},
 		},
-		// Data cells: wrap + middle align so content stays visible.
+		// Clear any status dropdown from earlier layouts.
+		{
+			SetDataValidation: &gapi.SetDataValidationRequest{
+				Range: &gapi.GridRange{
+					SheetId:          sheetID,
+					StartRowIndex:    1,
+					EndRowIndex:      2000,
+					StartColumnIndex: 3,
+					EndColumnIndex:   4,
+				},
+			},
+		},
+		// Readable row height + wrap for notes.
+		{
+			UpdateDimensionProperties: &gapi.UpdateDimensionPropertiesRequest{
+				Range: &gapi.DimensionRange{
+					SheetId:    sheetID,
+					Dimension:  "ROWS",
+					StartIndex: 1,
+					EndIndex:   2000,
+				},
+				Properties: &gapi.DimensionProperties{PixelSize: 36},
+				Fields:     "pixelSize",
+			},
+		},
 		{
 			RepeatCell: &gapi.RepeatCellRequest{
 				Range: &gapi.GridRange{
@@ -237,71 +223,23 @@ func (c *Client) ApplyFormatting(ctx context.Context) error {
 				},
 				Cell: &gapi.CellData{
 					UserEnteredFormat: &gapi.CellFormat{
-						VerticalAlignment:   "MIDDLE",
-						HorizontalAlignment: "LEFT",
-						WrapStrategy:        "WRAP",
-						Padding: &gapi.Padding{
-							Top:    4,
-							Bottom: 4,
-							Left:   6,
-							Right:  6,
-						},
+						WrapStrategy:      "WRAP",
+						VerticalAlignment: "MIDDLE",
 					},
 				},
-				Fields: "userEnteredFormat(verticalAlignment,horizontalAlignment,wrapStrategy,padding)",
-			},
-		},
-		// Status column centered.
-		{
-			RepeatCell: &gapi.RepeatCellRequest{
-				Range: &gapi.GridRange{
-					SheetId:          sheetID,
-					StartRowIndex:    1,
-					EndRowIndex:      2000,
-					StartColumnIndex: 3,
-					EndColumnIndex:   4,
-				},
-				Cell: &gapi.CellData{
-					UserEnteredFormat: &gapi.CellFormat{
-						HorizontalAlignment: "CENTER",
-						VerticalAlignment:   "MIDDLE",
-					},
-				},
-				Fields: "userEnteredFormat(horizontalAlignment,verticalAlignment)",
-			},
-		},
-		// Status dropdown (column D = index 3).
-		{
-			SetDataValidation: &gapi.SetDataValidationRequest{
-				Range: &gapi.GridRange{
-					SheetId:          sheetID,
-					StartRowIndex:    1,
-					EndRowIndex:      2000,
-					StartColumnIndex: 3,
-					EndColumnIndex:   4,
-				},
-				Rule: &gapi.DataValidationRule{
-					Condition: &gapi.BooleanCondition{
-						Type:   "ONE_OF_LIST",
-						Values: conditionValues(statusChoices...),
-					},
-					ShowCustomUi: true,
-					Strict:       true,
-				},
+				Fields: "userEnteredFormat(wrapStrategy,verticalAlignment)",
 			},
 		},
 	}
 
-	// Visible column widths: Company, Position, Status, Applied, Interview, OA, Notes.
-	// (Index 0 is Row ID — hidden; widths start at column B = index 1.)
 	widths := map[int64]int64{
-		1: 170, // Company
-		2: 240, // Position
-		3: 120, // Status
-		4: 130, // Applied At
-		5: 130, // Interview At
-		6: 120, // OA At
-		7: 360, // Notes
+		1: 160, // Company
+		2: 220, // Position
+		3: 110, // Status
+		4: 110, // Applied At
+		5: 110, // Interview At
+		6: 120, // Assessment At
+		7: 300, // Notes
 	}
 	for col, w := range widths {
 		requests = append(requests, &gapi.Request{
@@ -339,40 +277,44 @@ func (c *Client) ApplyFormatting(ctx context.Context) error {
 		}
 	}
 
-	statusColors := []struct {
-		value string
-		color *gapi.Color
+	// Whole-row colors from Status (column D). applied/other stay uncolored.
+	rowColors := []struct {
+		status string
+		color  *gapi.Color
 	}{
-		{models.StatusApplied, &gapi.Color{Red: 0.81, Green: 0.89, Blue: 0.98}},
-		{models.StatusOA, &gapi.Color{Red: 1.00, Green: 0.90, Blue: 0.75}},
-		{models.StatusInterview, &gapi.Color{Red: 0.78, Green: 0.94, Blue: 0.81}},
-		{models.StatusRejected, &gapi.Color{Red: 0.98, Green: 0.80, Blue: 0.80}},
-		{models.StatusOffer, &gapi.Color{Red: 0.85, Green: 0.82, Blue: 0.95}},
-		{models.StatusOther, &gapi.Color{Red: 0.90, Green: 0.90, Blue: 0.90}},
+		{domain.StatusRejected, &gapi.Color{Red: 0.96, Green: 0.80, Blue: 0.80}},    // red
+		{domain.StatusInterview, &gapi.Color{Red: 0.80, Green: 0.90, Blue: 0.98}},   // blue
+		{domain.StatusAssessment, &gapi.Color{Red: 1.00, Green: 0.92, Blue: 0.78}},  // amber
+		{domain.StatusAccepted, &gapi.Color{Red: 0.78, Green: 0.93, Blue: 0.82}},    // green
+		// Back-compat if old values remain in the sheet.
+		{"oa", &gapi.Color{Red: 1.00, Green: 0.92, Blue: 0.78}},
+		{"offer", &gapi.Color{Red: 0.78, Green: 0.93, Blue: 0.82}},
 	}
-	for i, sc := range statusColors {
+
+	dataRange := &gapi.GridRange{
+		SheetId:          sheetID,
+		StartRowIndex:    1,
+		EndRowIndex:      2000,
+		StartColumnIndex: 0,
+		EndColumnIndex:   int64(len(Headers)),
+	}
+	for i, rc := range rowColors {
+		formula := fmt.Sprintf(`=$D2="%s"`, rc.status)
 		ruleIndex := int64(i)
 		requests = append(requests, &gapi.Request{
 			AddConditionalFormatRule: &gapi.AddConditionalFormatRuleRequest{
 				Index: ruleIndex,
 				Rule: &gapi.ConditionalFormatRule{
-					Ranges: []*gapi.GridRange{{
-						SheetId:          sheetID,
-						StartRowIndex:    1,
-						EndRowIndex:      2000,
-						StartColumnIndex: 3, // Status
-						EndColumnIndex:   4,
-					}},
+					Ranges: []*gapi.GridRange{dataRange},
 					BooleanRule: &gapi.BooleanRule{
 						Condition: &gapi.BooleanCondition{
-							Type: "TEXT_EQ",
+							Type: "CUSTOM_FORMULA",
 							Values: []*gapi.ConditionValue{
-								{UserEnteredValue: sc.value},
+								{UserEnteredValue: formula},
 							},
 						},
 						Format: &gapi.CellFormat{
-							BackgroundColor: sc.color,
-							TextFormat:      &gapi.TextFormat{Bold: true},
+							BackgroundColor: rc.color,
 						},
 					},
 				},
@@ -524,14 +466,6 @@ func toAnySlice(ss []string) []any {
 	out := make([]any, len(ss))
 	for i, s := range ss {
 		out[i] = s
-	}
-	return out
-}
-
-func conditionValues(values ...string) []*gapi.ConditionValue {
-	out := make([]*gapi.ConditionValue, len(values))
-	for i, v := range values {
-		out[i] = &gapi.ConditionValue{UserEnteredValue: v}
 	}
 	return out
 }

@@ -33,7 +33,24 @@ make test
 ./bin/jobsync status
 ```
 
-Local data: `~/.config/jobsync/` (override with `JOBSYNC_CONFIG_DIR`).
+## Layout
+
+```text
+cmd/jobsync/          # CLI entrypoint
+internal/
+  cli/                # init, sync, status commands
+  config/             # ~/.config/jobsync settings
+  domain/             # Application, SyncRun, statuses
+  storage/            # SQLite + migrations
+  google/
+    auth/             # Google OAuth
+    gmail/            # Gmail search/read
+    sheets/           # tracker spreadsheet
+  gemini/             # Gemini extraction (AI Studio)
+  syncer/             # full sync orchestration (Phase 5)
+  schedule/           # daily cron (Phase 6)
+docs/
+```
 
 ## Roadmap
 

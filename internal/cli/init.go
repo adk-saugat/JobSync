@@ -8,11 +8,11 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/saugatadhikari/jobSync/internal/auth"
+	"github.com/saugatadhikari/jobSync/internal/google/auth"
 	"github.com/saugatadhikari/jobSync/internal/config"
-	"github.com/saugatadhikari/jobSync/internal/gmail"
-	"github.com/saugatadhikari/jobSync/internal/models"
-	"github.com/saugatadhikari/jobSync/internal/sheets"
+	"github.com/saugatadhikari/jobSync/internal/google/gmail"
+	"github.com/saugatadhikari/jobSync/internal/domain"
+	"github.com/saugatadhikari/jobSync/internal/google/sheets"
 )
 
 func runInit(args []string) error {
@@ -77,7 +77,7 @@ func runInit(args []string) error {
 		RowID:     rowID,
 		Company:   "Phase2 Test Co",
 		Position:  "Software Engineer",
-		Status:    models.StatusApplied,
+		Status:    domain.StatusApplied,
 		AppliedAt: "2026-08-01",
 		Notes:     "Created by jobsync init",
 	}
@@ -86,7 +86,7 @@ func runInit(args []string) error {
 	}
 	fmt.Println("Appended test row (Row ID stored, column hidden)")
 
-	testRow.Status = models.StatusInterview
+	testRow.Status = domain.StatusInterview
 	testRow.InterviewAt = "2026-08-20"
 	testRow.Notes = "Updated by jobsync init — status should be green"
 	if err := client.UpdateRowByID(ctx, testRow); err != nil {
@@ -111,6 +111,7 @@ func runInit(args []string) error {
 	fmt.Println()
 	fmt.Println("Init complete.")
 	fmt.Printf("Sheet: %s\n", sheets.SpreadsheetURL(cfg.SpreadsheetID))
+	fmt.Println("Sheet style: plain header, Assessment At, whole-row colors (no dropdown).")
 	fmt.Println("Next: ./bin/jobsync sync --extract --limit 2")
 	return nil
 }

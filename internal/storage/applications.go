@@ -1,4 +1,4 @@
-package db
+package storage
 
 import (
 	"context"
@@ -9,13 +9,13 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/saugatadhikari/jobSync/internal/models"
+	"github.com/saugatadhikari/jobSync/internal/domain"
 )
 
 const timeLayout = time.RFC3339
 
 // CreateApplication inserts a new application row.
-func (db *DB) CreateApplication(ctx context.Context, app *models.Application) error {
+func (db *DB) CreateApplication(ctx context.Context, app *domain.Application) error {
 	now := time.Now().UTC()
 	if app.ID == "" {
 		app.ID = uuid.NewString()
@@ -54,7 +54,7 @@ func (db *DB) CreateApplication(ctx context.Context, app *models.Application) er
 }
 
 // GetApplicationByID loads an application by id.
-func (db *DB) GetApplicationByID(ctx context.Context, id string) (*models.Application, error) {
+func (db *DB) GetApplicationByID(ctx context.Context, id string) (*domain.Application, error) {
 	row := db.SQL.QueryRowContext(ctx, `
 		SELECT id, company, position, status,
 			applied_at, interview_at, oa_at,
@@ -65,7 +65,7 @@ func (db *DB) GetApplicationByID(ctx context.Context, id string) (*models.Applic
 }
 
 // FindBySourceEmailID finds an application by Gmail message id.
-func (db *DB) FindBySourceEmailID(ctx context.Context, emailID string) (*models.Application, error) {
+func (db *DB) FindBySourceEmailID(ctx context.Context, emailID string) (*domain.Application, error) {
 	row := db.SQL.QueryRowContext(ctx, `
 		SELECT id, company, position, status,
 			applied_at, interview_at, oa_at,
@@ -76,7 +76,7 @@ func (db *DB) FindBySourceEmailID(ctx context.Context, emailID string) (*models.
 }
 
 // FindByCompanyAndPosition finds by case-insensitive company + position.
-func (db *DB) FindByCompanyAndPosition(ctx context.Context, company, position string) (*models.Application, error) {
+func (db *DB) FindByCompanyAndPosition(ctx context.Context, company, position string) (*domain.Application, error) {
 	row := db.SQL.QueryRowContext(ctx, `
 		SELECT id, company, position, status,
 			applied_at, interview_at, oa_at,
@@ -89,7 +89,7 @@ func (db *DB) FindByCompanyAndPosition(ctx context.Context, company, position st
 }
 
 // UpdateApplication updates mutable application fields.
-func (db *DB) UpdateApplication(ctx context.Context, app *models.Application) error {
+func (db *DB) UpdateApplication(ctx context.Context, app *domain.Application) error {
 	app.UpdatedAt = time.Now().UTC()
 	res, err := db.SQL.ExecContext(ctx, `
 		UPDATE applications SET
@@ -124,7 +124,7 @@ func (db *DB) UpdateApplication(ctx context.Context, app *models.Application) er
 }
 
 // MarkEmailProcessed records that a Gmail message was handled.
-func (db *DB) MarkEmailProcessed(ctx context.Context, rec models.EmailProcessed) error {
+func (db *DB) MarkEmailProcessed(ctx context.Context, rec domain.EmailProcessed) error {
 	if rec.ProcessedAt.IsZero() {
 		rec.ProcessedAt = time.Now().UTC()
 	}
@@ -162,7 +162,7 @@ func (db *DB) IsEmailProcessed(ctx context.Context, gmailMessageID string) (bool
 }
 
 // CreateSyncRun inserts a new sync run.
-func (db *DB) CreateSyncRun(ctx context.Context, run *models.SyncRun) error {
+func (db *DB) CreateSyncRun(ctx context.Context, run *domain.SyncRun) error {
 	if run.ID == "" {
 		run.ID = uuid.NewString()
 	}
@@ -195,7 +195,7 @@ func (db *DB) CreateSyncRun(ctx context.Context, run *models.SyncRun) error {
 }
 
 // FinishSyncRun updates counters/status at the end of a sync.
-func (db *DB) FinishSyncRun(ctx context.Context, run *models.SyncRun) error {
+func (db *DB) FinishSyncRun(ctx context.Context, run *domain.SyncRun) error {
 	now := time.Now().UTC()
 	run.FinishedAt = &now
 	_, err := db.SQL.ExecContext(ctx, `
@@ -230,7 +230,7 @@ func (db *DB) GetLastSuccessfulWatermark(ctx context.Context) (string, error) {
 		WHERE status IN (?, ?) AND watermark != ''
 		ORDER BY started_at DESC
 		LIMIT 1`,
-		models.SyncStatusSuccess, models.SyncStatusPartial,
+		domain.SyncStatusSuccess, domain.SyncStatusPartial,
 	).Scan(&watermark)
 	if err == sql.ErrNoRows {
 		return "", nil
@@ -245,9 +245,9 @@ type scannable interface {
 	Scan(dest ...any) error
 }
 
-func scanApplication(row scannable) (*models.Application, error) {
+func scanApplication(row scannable) (*domain.Application, error) {
 	var (
-		app                                models.Application
+		app                                domain.Application
 		applied, interview, oa             sql.NullString
 		sourceEmailID, sheetRowID          sql.NullString
 		createdAt, updatedAt               string
