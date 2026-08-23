@@ -70,3 +70,28 @@ type SyncRun struct {
 	Watermark              string
 	ErrorSummary           string
 }
+
+// Account holds per-user cloud settings and secrets for server-side sync.
+type Account struct {
+	ID                string
+	SpreadsheetID     string
+	SheetName         string
+	GeminiAPIKey      string
+	GeminiModel       string
+	OAuthTokenJSON    string
+	AuthScopesVersion int
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+}
+
+func (a *Account) HasGeminiKey() bool {
+	return a != nil && a.GeminiAPIKey != ""
+}
+
+func (a *Account) HasSpreadsheet() bool {
+	return a != nil && a.SpreadsheetID != ""
+}
+
+func (a *Account) HasOAuthToken() bool {
+	return a != nil && a.OAuthTokenJSON != ""
+}

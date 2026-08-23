@@ -9,7 +9,7 @@
 # Local / user secrets (never commit)
 .env
 .env.*
-!.env.example
+deploy.env.yaml
 *.pem
 *credentials*.json
 *token*.json

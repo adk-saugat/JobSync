@@ -33,11 +33,6 @@ var RequiredScopes = []string{
 	gmail.GmailReadonlyScope,
 }
 
-// SheetsScopes are Sheets-only (legacy Phase 2).
-var SheetsScopes = []string{
-	sheets.SpreadsheetsScope,
-}
-
 // ErrMissingClientSecret means the user has not installed Google OAuth credentials yet.
 var ErrMissingClientSecret = errors.New("missing Google OAuth client secret")
 
@@ -108,7 +103,7 @@ func readOAuthClientJSON() ([]byte, error) {
 	}
 
 	if len(embeddedOAuthClientJSON) == 0 {
-		return nil, fmt.Errorf("%w: no embedded OAuth client and none at %s (see docs/README.md)", ErrMissingClientSecret, path)
+		return nil, fmt.Errorf("%w: no embedded OAuth client and none at %s (see README.md)", ErrMissingClientSecret, path)
 	}
 	return embeddedOAuthClientJSON, nil
 }
@@ -119,16 +114,31 @@ func TokenFromFile() (*oauth2.Token, error) {
 	if err != nil {
 		return nil, err
 	}
-	f, err := os.Open(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	return TokenFromJSON(data)
+}
+
+// TokenFromJSON parses a saved OAuth token.
+func TokenFromJSON(data []byte) (*oauth2.Token, error) {
 	tok := &oauth2.Token{}
-	if err := json.NewDecoder(f).Decode(tok); err != nil {
-		return nil, err
+	if err := json.Unmarshal(data, tok); err != nil {
+		return nil, fmt.Errorf("parse oauth token: %w", err)
+	}
+	if tok.AccessToken == "" && tok.RefreshToken == "" {
+		return nil, fmt.Errorf("oauth token json is empty")
 	}
 	return tok, nil
+}
+
+// MarshalTokenJSON encodes a token for persistence.
+func MarshalTokenJSON(tok *oauth2.Token) ([]byte, error) {
+	if tok == nil {
+		return nil, fmt.Errorf("token is nil")
+	}
+	return json.Marshal(tok)
 }
 
 // SaveToken writes the OAuth token to disk.
@@ -268,6 +278,26 @@ func HTTPClient(ctx context.Context, scopes []string) (*http.Client, error) {
 	return oauth2.NewClient(ctx, returning), nil
 }
 
+// HTTPClientFromStoredToken builds an HTTP client from JSON token bytes.
+// onSave is called when the token is refreshed (e.g. write back to Neon).
+func HTTPClientFromStoredToken(ctx context.Context, tokenJSON string, onSave func([]byte) error) (*http.Client, error) {
+	tok, err := TokenFromJSON([]byte(tokenJSON))
+	if err != nil {
+		return nil, err
+	}
+	oauthCfg, err := LoadOAuthConfig(RequiredScopes)
+	if err != nil {
+		return nil, err
+	}
+	tokenSource := oauthCfg.TokenSource(ctx, tok)
+	returning := &persistTokenSource{
+		base: oauth2.ReuseTokenSource(tok, tokenSource),
+		tok:  tok,
+		save: onSave,
+	}
+	return oauth2.NewClient(ctx, returning), nil
+}
+
 // EnsureScopes returns an HTTP client with the required scopes.
 // If the saved auth version is older, it clears the token and re-runs Login.
 func EnsureScopes(ctx context.Context, cfg *config.Config, scopes []string, scopesVersion int) (*http.Client, error) {
@@ -290,6 +320,7 @@ func EnsureScopes(ctx context.Context, cfg *config.Config, scopes []string, scop
 type persistTokenSource struct {
 	base oauth2.TokenSource
 	tok  *oauth2.Token
+	save func([]byte) error
 }
 
 func (p *persistTokenSource) Token() (*oauth2.Token, error) {
@@ -298,7 +329,13 @@ func (p *persistTokenSource) Token() (*oauth2.Token, error) {
 		return nil, err
 	}
 	if tok.AccessToken != p.tok.AccessToken || tok.RefreshToken != p.tok.RefreshToken {
-		_ = SaveToken(tok)
+		if p.save != nil {
+			if data, err := MarshalTokenJSON(tok); err == nil {
+				_ = p.save(data)
+			}
+		} else {
+			_ = SaveToken(tok)
+		}
 		p.tok = tok
 	}
 	return tok, nil

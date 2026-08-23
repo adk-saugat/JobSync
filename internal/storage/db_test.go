@@ -124,4 +124,12 @@ func TestEmailProcessedAndSyncRun(t *testing.T) {
 	if wm != "wm-100" {
 		t.Fatalf("watermark = %q", wm)
 	}
+
+	last, err := database.GetLastSyncRun(ctx)
+	if err != nil {
+		t.Fatalf("last sync run: %v", err)
+	}
+	if last == nil || last.Status != domain.SyncStatusSuccess || last.EmailsUpdated != 1 {
+		t.Fatalf("GetLastSyncRun: %+v", last)
+	}
 }

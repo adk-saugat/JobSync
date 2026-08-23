@@ -26,10 +26,16 @@ type Config struct {
 	GeminiModel   string `json:"gemini_model,omitempty"`
 	// AuthScopesVersion tracks which Google OAuth scopes were granted.
 	AuthScopesVersion int `json:"auth_scopes_version,omitempty"`
-	// SyncHour and SyncMinute are set in Phase 6 (random evening time).
-	SyncHour   *int `json:"sync_hour,omitempty"`
-	SyncMinute *int `json:"sync_minute,omitempty"`
+	// CloudSyncEnabled means daily sync runs on Cloud Run.
+	CloudSyncEnabled bool `json:"cloud_sync_enabled,omitempty"`
+	// CloudAccountID is the Neon tenant id used by cloud push (usually derived from Gmail).
+	CloudAccountID string `json:"cloud_account_id,omitempty"`
+	// CloudServerURL is the hosted JobSync API used for cloud push.
+	CloudServerURL string `json:"cloud_server_url,omitempty"`
 }
+
+// DefaultCloudServerURL may be set at link time for release binaries.
+var DefaultCloudServerURL = ""
 
 // Dir returns the JobSync config directory (~/.config/jobsync).
 func Dir() (string, error) {
@@ -151,4 +157,9 @@ func Save(cfg *Config) error {
 // HasGeminiKey reports whether a Gemini API key is configured.
 func (c *Config) HasGeminiKey() bool {
 	return c != nil && strings.TrimSpace(c.GeminiAPIKey) != ""
+}
+
+// UsesCloudSync reports whether daily sync is delegated to Cloud Run.
+func (c *Config) UsesCloudSync() bool {
+	return c != nil && c.CloudSyncEnabled
 }

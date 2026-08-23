@@ -241,6 +241,60 @@ func (db *DB) GetLastSuccessfulWatermark(ctx context.Context) (string, error) {
 	return watermark, nil
 }
 
+// GetLastSyncRun returns the most recently finished sync run, if any.
+func (db *DB) GetLastSyncRun(ctx context.Context) (*domain.SyncRun, error) {
+	row := db.SQL.QueryRowContext(ctx, `
+		SELECT id, started_at, finished_at, status,
+			emails_seen, emails_updated, errors,
+			gemini_calls, gemini_skipped_prefilter,
+			watermark, error_summary
+		FROM sync_runs
+		WHERE finished_at IS NOT NULL AND finished_at != ''
+		ORDER BY finished_at DESC
+		LIMIT 1`)
+	return scanSyncRun(row)
+}
+
+func scanSyncRun(row scannable) (*domain.SyncRun, error) {
+	var (
+		run                                domain.SyncRun
+		startedAt, finishedAt              sql.NullString
+		watermark, errorSummary            sql.NullString
+	)
+	err := row.Scan(
+		&run.ID, &startedAt, &finishedAt, &run.Status,
+		&run.EmailsSeen, &run.EmailsUpdated, &run.Errors,
+		&run.GeminiCalls, &run.GeminiSkippedPrefilter,
+		&watermark, &errorSummary,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("scan sync run: %w", err)
+	}
+	if startedAt.Valid {
+		run.StartedAt, err = time.Parse(timeLayout, startedAt.String)
+		if err != nil {
+			return nil, fmt.Errorf("parse started_at: %w", err)
+		}
+	}
+	if finishedAt.Valid && strings.TrimSpace(finishedAt.String) != "" {
+		t, err := time.Parse(timeLayout, finishedAt.String)
+		if err != nil {
+			return nil, fmt.Errorf("parse finished_at: %w", err)
+		}
+		run.FinishedAt = &t
+	}
+	if watermark.Valid {
+		run.Watermark = watermark.String
+	}
+	if errorSummary.Valid {
+		run.ErrorSummary = errorSummary.String
+	}
+	return &run, nil
+}
+
 type scannable interface {
 	Scan(dest ...any) error
 }

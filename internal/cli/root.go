@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-// Run dispatches CLI commands. Phase 0: stubs only.
+// Run dispatches CLI commands.
 func Run(args []string) error {
 	if len(args) == 0 {
 		printUsage()
@@ -19,6 +19,10 @@ func Run(args []string) error {
 		return runSync(args[1:])
 	case "status":
 		return runStatus(args[1:])
+	case "cloud":
+		return runCloud(args[1:])
+	case "version", "-v", "--version":
+		return runVersion(args[1:])
 	case "help", "-h", "--help":
 		printUsage()
 		return nil
@@ -35,8 +39,10 @@ Usage:
   jobsync <command>
 
 Commands:
-  init      Google sign-in, Sheet setup, Gemini API key
-  sync      Full sync (or --emails-only / --extract / --dry-run)
-  status    Show DB, spreadsheet, auth, Gemini, schedule
+  init      Google sign-in, Sheet setup, Gemini key
+  sync      Full sync (--dry-run, --limit)
+  status    Show spreadsheet, auth, Gemini, cloud sync
+  cloud     Register for hosted daily sync (cloud push)
+  version   Show version
   help      Show this help`)
 }

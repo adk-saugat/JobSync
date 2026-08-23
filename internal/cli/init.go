@@ -6,12 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
-
-	"github.com/saugatadhikari/jobSync/internal/google/auth"
 	"github.com/saugatadhikari/jobSync/internal/config"
+	"github.com/saugatadhikari/jobSync/internal/google/auth"
 	"github.com/saugatadhikari/jobSync/internal/google/gmail"
-	"github.com/saugatadhikari/jobSync/internal/domain"
 	"github.com/saugatadhikari/jobSync/internal/google/sheets"
 )
 
@@ -24,7 +21,7 @@ func runInit(args []string) error {
 		return err
 	}
 	fmt.Printf("config dir: %s\n", dir)
-	fmt.Println("Google sign-in uses the built-in JobSync OAuth app (no Cloud Console setup needed).")
+	fmt.Println("Google sign-in uses the built-in JobSync OAuth app.")
 	fmt.Println()
 
 	cfg, err := config.Load()
@@ -55,38 +52,11 @@ func runInit(args []string) error {
 		if err != nil {
 			return err
 		}
-		fmt.Println("Refreshing sheet layout + formatting...")
+		fmt.Println("Refreshing sheet layout...")
 		if err := client.SetupSheet(ctx); err != nil {
 			return err
 		}
 	}
-
-	client, err := sheets.NewClient(ctx, httpClient, cfg.SpreadsheetID, cfg.SheetName)
-	if err != nil {
-		return err
-	}
-
-	rowID := uuid.NewString()
-	testRow := sheets.Row{
-		RowID:     rowID,
-		Company:   "Phase2 Test Co",
-		Position:  "Software Engineer",
-		Status:    domain.StatusApplied,
-		AppliedAt: "2026-08-01",
-		Notes:     "Created by jobsync init",
-	}
-	if err := client.AppendRow(ctx, testRow); err != nil {
-		return fmt.Errorf("append test row: %w", err)
-	}
-	fmt.Println("Appended test row (Row ID stored, column hidden)")
-
-	testRow.Status = domain.StatusInterview
-	testRow.InterviewAt = "2026-08-20"
-	testRow.Notes = "Updated by jobsync init — status should be green"
-	if err := client.UpdateRowByID(ctx, testRow); err != nil {
-		return fmt.Errorf("update test row: %w", err)
-	}
-	fmt.Println("Updated test row by Row ID → interview")
 
 	gclient, err := gmail.NewClient(ctx, httpClient)
 	if err != nil {
@@ -94,19 +64,26 @@ func runInit(args []string) error {
 	}
 	msgs, err := gclient.Search(ctx, gmail.DefaultQuery, 5, time.Time{})
 	if err != nil {
-		return fmt.Errorf("gmail search (enable Gmail API in Google Cloud if this fails): %w", err)
+		return fmt.Errorf("gmail search: %w", err)
 	}
 	fmt.Printf("Gmail search: ok (%d recent candidate emails)\n", len(msgs))
 
 	if err := ensureGeminiKey(cfg); err != nil {
 		return err
 	}
+	if err := config.Save(cfg); err != nil {
+		return err
+	}
 
 	fmt.Println()
 	fmt.Println("Init complete.")
 	fmt.Printf("Sheet: %s\n", sheets.SpreadsheetURL(cfg.SpreadsheetID))
-	fmt.Println("Sheet style: plain header, Assessment At, whole-row colors (no dropdown).")
-	fmt.Println("Next: ./bin/jobsync sync --extract --limit 2")
+	if cfg.UsesCloudSync() {
+		fmt.Println("Next: already on cloud sync — run jobsync cloud push after credential changes")
+	} else {
+		fmt.Println("Next: jobsync cloud push")
+		fmt.Println("      jobsync sync --dry-run --limit 5   (optional local test)")
+	}
 	return nil
 }
 
@@ -117,10 +94,8 @@ func ensureGeminiKey(cfg *config.Config) error {
 	}
 
 	fmt.Println()
-	fmt.Println("Gemini (Google AI Studio) setup")
-	fmt.Println("  1. Open https://aistudio.google.com/apikey")
-	fmt.Println("  2. Create an API key")
-	fmt.Print("Paste your Gemini API key (input hidden not supported — paste carefully): ")
+	fmt.Println("Gemini setup — open https://aistudio.google.com/apikey")
+	fmt.Print("Paste your Gemini API key: ")
 
 	var key string
 	if _, err := fmt.Scanln(&key); err != nil {
@@ -128,16 +103,13 @@ func ensureGeminiKey(cfg *config.Config) error {
 	}
 	key = strings.TrimSpace(key)
 	if key == "" {
-		return fmt.Errorf("gemini api key is required for Phase 4+")
+		return fmt.Errorf("gemini api key is required")
 	}
 
 	cfg.GeminiAPIKey = key
 	if cfg.GeminiModel == "" {
 		cfg.GeminiModel = config.DefaultGeminiModel
 	}
-	if err := config.Save(cfg); err != nil {
-		return err
-	}
-	fmt.Println("Gemini API key: saved to config.json")
+	fmt.Println("Gemini API key: saved")
 	return nil
 }
