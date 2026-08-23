@@ -53,16 +53,29 @@ Done. Your sheet will update automatically each day.
 
 ## Optional
 
+### Use `jobsync` from anywhere
+
+To run `jobsync` from any folder (not just `./jobsync-darwin-arm64`):
+
+```bash
+mkdir -p ~/bin
+mv ~/Downloads/jobsync-darwin-arm64 ~/bin/jobsync
+echo 'export PATH=$HOME/bin:$PATH' >> ~/.zshrc
+source ~/.zshrc
+```
+
+Then use `jobsync init`, `jobsync cloud push`, etc. (Linux: use `~/.bashrc` instead of `~/.zshrc`.)
+
 Check everything looks good:
 
 ```bash
-./jobsync-darwin-arm64 status
+jobsync status
 ```
 
 Sync manually anytime:
 
 ```bash
-./jobsync-darwin-arm64 sync
+jobsync sync
 ```
 
 ---
