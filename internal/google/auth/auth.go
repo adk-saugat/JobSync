@@ -2,7 +2,6 @@ package auth
 
 import (
 	"context"
-	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 	"time"
 
 	"golang.org/x/oauth2"
@@ -21,8 +21,12 @@ import (
 	"github.com/saugatadhikari/jobSync/internal/config"
 )
 
-//go:embed oauth_client.json
-var embeddedOAuthClientJSON []byte
+// EmbeddedClientID / EmbeddedClientSecret are set at build time via -ldflags
+// from a local oauth_client.json (never committed). Release binaries ship with these.
+var (
+	EmbeddedClientID     string
+	EmbeddedClientSecret string
+)
 
 // CurrentScopesVersion bumps when required OAuth scopes change (forces re-login).
 const CurrentScopesVersion = 2 // Sheets + Gmail readonly
@@ -50,26 +54,12 @@ type installedCredentials struct {
 }
 
 // LoadOAuthConfig loads the Desktop OAuth client.
-// Order: JOBSYNC_CLIENT_SECRET_FILE → ~/.config/jobsync/client_secret.json → embedded JobSync client.
+// Order: JOBSYNC_CLIENT_SECRET_FILE → ~/.config/jobsync/client_secret.json →
+// GOOGLE_OAUTH_CLIENT_ID/SECRET env → build-time EmbeddedClientID/Secret.
 func LoadOAuthConfig(scopes []string) (*oauth2.Config, error) {
-	data, err := readOAuthClientJSON()
+	clientID, clientSecret, err := resolveOAuthClient()
 	if err != nil {
 		return nil, err
-	}
-
-	var raw installedCredentials
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return nil, fmt.Errorf("parse OAuth client JSON: %w", err)
-	}
-
-	clientID := raw.Installed.ClientID
-	clientSecret := raw.Installed.ClientSecret
-	if clientID == "" {
-		clientID = raw.Web.ClientID
-		clientSecret = raw.Web.ClientSecret
-	}
-	if clientID == "" || clientSecret == "" {
-		return nil, fmt.Errorf("OAuth client JSON missing client_id/client_secret")
 	}
 
 	return &oauth2.Config{
@@ -81,31 +71,55 @@ func LoadOAuthConfig(scopes []string) (*oauth2.Config, error) {
 	}, nil
 }
 
-func readOAuthClientJSON() ([]byte, error) {
+func resolveOAuthClient() (clientID, clientSecret string, err error) {
 	if path := os.Getenv("JOBSYNC_CLIENT_SECRET_FILE"); path != "" {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return nil, fmt.Errorf("read JOBSYNC_CLIENT_SECRET_FILE: %w", err)
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return "", "", fmt.Errorf("read JOBSYNC_CLIENT_SECRET_FILE: %w", readErr)
 		}
-		return data, nil
+		return parseOAuthClientJSON(data)
 	}
 
-	path, err := config.ClientSecretPath()
-	if err != nil {
-		return nil, err
+	path, pathErr := config.ClientSecretPath()
+	if pathErr != nil {
+		return "", "", pathErr
 	}
-	data, err := os.ReadFile(path)
-	if err == nil {
-		return data, nil
-	}
-	if !os.IsNotExist(err) {
-		return nil, err
+	if data, readErr := os.ReadFile(path); readErr == nil {
+		return parseOAuthClientJSON(data)
+	} else if !os.IsNotExist(readErr) {
+		return "", "", readErr
 	}
 
-	if len(embeddedOAuthClientJSON) == 0 {
-		return nil, fmt.Errorf("%w: no embedded OAuth client and none at %s (see README.md)", ErrMissingClientSecret, path)
+	clientID = strings.TrimSpace(os.Getenv("GOOGLE_OAUTH_CLIENT_ID"))
+	clientSecret = strings.TrimSpace(os.Getenv("GOOGLE_OAUTH_CLIENT_SECRET"))
+	if clientID != "" && clientSecret != "" {
+		return clientID, clientSecret, nil
 	}
-	return embeddedOAuthClientJSON, nil
+
+	clientID = strings.TrimSpace(EmbeddedClientID)
+	clientSecret = strings.TrimSpace(EmbeddedClientSecret)
+	if clientID != "" && clientSecret != "" {
+		return clientID, clientSecret, nil
+	}
+
+	return "", "", fmt.Errorf("%w: set GOOGLE_OAUTH_CLIENT_ID/SECRET, place oauth_client.json for builds, or %s", ErrMissingClientSecret, path)
+}
+
+func parseOAuthClientJSON(data []byte) (clientID, clientSecret string, err error) {
+	var raw installedCredentials
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return "", "", fmt.Errorf("parse OAuth client JSON: %w", err)
+	}
+	clientID = raw.Installed.ClientID
+	clientSecret = raw.Installed.ClientSecret
+	if clientID == "" {
+		clientID = raw.Web.ClientID
+		clientSecret = raw.Web.ClientSecret
+	}
+	if clientID == "" || clientSecret == "" {
+		return "", "", fmt.Errorf("OAuth client JSON missing client_id/client_secret")
+	}
+	return clientID, clientSecret, nil
 }
 
 // TokenFromFile loads a saved OAuth token.

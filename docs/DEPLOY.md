@@ -12,13 +12,32 @@ Maintainer guide. GCP project: **`jobsync-506205`** · Cloud Run: **`https://job
 |-------|--------|
 | App name | `JobSync` |
 | Support email | your Gmail |
-| Home page | `https://github.com/saugatadhikari/jobSync` |
-| Privacy policy | `https://github.com/saugatadhikari/jobSync/blob/main/docs/PRIVACY.md` |
+| Home page | `https://github.com/adk-saugat/JobSync` |
+| Privacy policy | `https://github.com/adk-saugat/JobSync/blob/main/docs/PRIVACY.md` |
 | Authorized domains | `github.com` |
 
 Scopes: `gmail.readonly`, `spreadsheets`. Enable **Gmail API** and **Sheets API**.
 
 In **Testing** mode, add each user’s Gmail under **Test users** (max 100). Policy text: [PRIVACY.md](PRIVACY.md).
+
+---
+
+## OAuth credentials (never commit)
+
+Keep Desktop OAuth JSON **local only**:
+
+```bash
+cp internal/google/auth/oauth_client.json.example internal/google/auth/oauth_client.json
+# paste real client_id / client_secret from Google Cloud Console
+```
+
+| Where | How credentials are used |
+|-------|---------------------------|
+| **CLI release binaries** | `make release` bakes them in via `-ldflags` from `oauth_client.json` |
+| **Cloud Run** | Set `GOOGLE_OAUTH_CLIENT_ID` + `GOOGLE_OAUTH_CLIENT_SECRET` in `deploy.env.yaml` |
+| **GitHub** | Never — file is gitignored |
+
+Users of release binaries need no OAuth file. Forks without baked credentials set `JOBSYNC_CLIENT_SECRET_FILE` or put JSON at `~/.config/jobsync/client_secret.json`.
 
 ---
 
@@ -29,6 +48,8 @@ In **Testing** mode, add each user’s Gmail under **Test users** (max 100). Pol
 ```yaml
 DATABASE_URL: "postgresql://...?sslmode=require"
 SYNC_SECRET: "openssl-rand-hex-32"
+GOOGLE_OAUTH_CLIENT_ID: "....apps.googleusercontent.com"
+GOOGLE_OAUTH_CLIENT_SECRET: "GOCSPX-..."
 ```
 
 ```bash

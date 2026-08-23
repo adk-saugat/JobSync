@@ -3,3 +3,5 @@ bin/
 *.db
 .env
 .env.*
+deploy.env.yaml
+internal/google/auth/oauth_client.json
