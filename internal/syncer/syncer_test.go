@@ -3,6 +3,7 @@ package syncer
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -46,14 +47,37 @@ func (f *fakeGemini) MinConfidence() float64 { return 0.6 }
 type fakeSheets struct {
 	appended int
 	updated  int
+	written  int
+	rows     map[string]sheets.Row // company|position lower -> row
 }
 
-func (f *fakeSheets) AppendRow(ctx context.Context, row sheets.Row) error {
-	f.appended++
-	return nil
+func (f *fakeSheets) key(c, p string) string {
+	return strings.ToLower(c) + "|" + strings.ToLower(p)
 }
-func (f *fakeSheets) UpdateRowByID(ctx context.Context, row sheets.Row) error {
-	f.updated++
+
+func (f *fakeSheets) FindByCompanyAndPosition(ctx context.Context, company, position string) (*sheets.Row, error) {
+	if f.rows == nil {
+		return nil, nil
+	}
+	if row, ok := f.rows[f.key(company, position)]; ok {
+		cp := row
+		return &cp, nil
+	}
+	return nil, nil
+}
+
+func (f *fakeSheets) WriteRow(ctx context.Context, row sheets.Row) error {
+	f.written++
+	if f.rows == nil {
+		f.rows = map[string]sheets.Row{}
+	}
+	k := f.key(row.Company, row.Position)
+	if _, ok := f.rows[k]; ok {
+		f.updated++
+	} else {
+		f.appended++
+	}
+	f.rows[k] = row
 	return nil
 }
 
@@ -172,6 +196,54 @@ func TestRunDryRunNoWrites(t *testing.T) {
 	}
 	if sheetsAPI.appended != 0 || len(store.apps) != 0 || store.processed["m2"] {
 		t.Fatal("dry-run must not write")
+	}
+}
+
+func TestRunReclaimsExistingSheetRow(t *testing.T) {
+	date := time.Date(2026, 8, 20, 12, 0, 0, 0, time.UTC)
+	store := newFakeStore()
+	sheetsAPI := &fakeSheets{
+		rows: map[string]sheets.Row{
+			"serval|software engineer intern": {
+				RowID:    "sheet-row-1",
+				Company:  "Serval",
+				Position: "Software Engineer Intern",
+				Status:   domain.StatusApplied,
+			},
+		},
+	}
+	gem := &fakeGemini{ext: &gemini.Extraction{
+		IsJobRelated: true,
+		Company:      "Serval",
+		Position:     "Software Engineer Intern",
+		Status:       domain.StatusApplied,
+		Confidence:   0.9,
+		Summary:      "Thanks for applying",
+	}}
+	g := &fakeGmail{
+		metas: []gmail.MessageMeta{{ID: "m3", Date: date}},
+		msgs: map[string]*gmail.Message{
+			"m3": {ID: "m3", Subject: "Thanks for applying to Serval!", From: "jobs@serval.com", Date: date, Body: "We received"},
+		},
+	}
+
+	runner := &Runner{Gmail: g, Gemini: gem, Sheets: sheetsAPI, DB: store}
+	res, err := runner.Run(context.Background(), Options{Limit: 5, MinInterval: time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.EmailsCreated != 0 || res.EmailsUpdated != 1 {
+		t.Fatalf("expected reclaim update, got %+v", res)
+	}
+	if sheetsAPI.appended != 0 || sheetsAPI.updated != 1 {
+		t.Fatalf("expected update not append: appended=%d updated=%d", sheetsAPI.appended, sheetsAPI.updated)
+	}
+	app, err := store.FindByCompanyAndPosition(context.Background(), "Serval", "Software Engineer Intern")
+	if err != nil || app == nil {
+		t.Fatalf("expected app in db: %v", err)
+	}
+	if app.SheetRowID != "sheet-row-1" {
+		t.Fatalf("sheet row id = %q", app.SheetRowID)
 	}
 }
 

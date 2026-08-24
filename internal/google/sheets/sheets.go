@@ -343,15 +343,7 @@ func (c *Client) AppendRow(ctx context.Context, row Row) error {
 	if err != nil {
 		return err
 	}
-
-	a1 := fmt.Sprintf("%s!A%d:H%d", c.sheetName, next, next)
-	_, err = c.svc.Spreadsheets.Values.Update(c.spreadsheetID, a1, &gapi.ValueRange{
-		Values: [][]any{rowValues(row)},
-	}).ValueInputOption("USER_ENTERED").Context(ctx).Do()
-	if err != nil {
-		return fmt.Errorf("append row: %w", err)
-	}
-	return nil
+	return c.writeAtSheetRow(ctx, next, row)
 }
 
 // UpdateRowByID finds the row by hidden Row ID and updates it.
@@ -366,15 +358,46 @@ func (c *Client) UpdateRowByID(ctx context.Context, row Row) error {
 	if rowIndex < 0 {
 		return fmt.Errorf("row id %q not found", row.RowID)
 	}
+	return c.writeAtSheetRow(ctx, rowIndex+1, row)
+}
 
-	a1 := fmt.Sprintf("%s!A%d:H%d", c.sheetName, rowIndex+1, rowIndex+1)
-	_, err = c.svc.Spreadsheets.Values.Update(c.spreadsheetID, a1, &gapi.ValueRange{
-		Values: [][]any{rowValues(row)},
-	}).ValueInputOption("USER_ENTERED").Context(ctx).Do()
-	if err != nil {
-		return fmt.Errorf("update row: %w", err)
+// WriteRow updates an existing row (by Row ID, else by company+position) or appends.
+// This prevents duplicate sheet rows when the local/cloud DB is out of sync with the sheet.
+func (c *Client) WriteRow(ctx context.Context, row Row) error {
+	if strings.TrimSpace(row.RowID) == "" {
+		return fmt.Errorf("write row: RowID is required")
 	}
-	return nil
+	if strings.TrimSpace(row.Company) == "" || strings.TrimSpace(row.Position) == "" {
+		return fmt.Errorf("write row: company and position are required")
+	}
+
+	values, err := c.readAllValues(ctx)
+	if err != nil {
+		return err
+	}
+
+	if idx := indexByRowID(values, row.RowID); idx >= 0 {
+		return c.writeAtSheetRow(ctx, idx+1, row)
+	}
+	if idx := indexByCompanyPosition(values, row.Company, row.Position); idx >= 0 {
+		return c.writeAtSheetRow(ctx, idx+1, row)
+	}
+	return c.writeAtSheetRow(ctx, nextEmptySheetRow(values), row)
+}
+
+// FindByCompanyAndPosition returns the first sheet row matching company+position
+// (case-insensitive). When duplicates exist, the earliest row wins.
+func (c *Client) FindByCompanyAndPosition(ctx context.Context, company, position string) (*Row, error) {
+	values, err := c.readAllValues(ctx)
+	if err != nil {
+		return nil, err
+	}
+	idx := indexByCompanyPosition(values, company, position)
+	if idx < 0 {
+		return nil, nil
+	}
+	parsed := parseDataRow(values[idx])
+	return &parsed, nil
 }
 
 // FindRowID reports whether a Row ID exists in the hidden column.
@@ -386,23 +409,102 @@ func (c *Client) FindRowID(ctx context.Context, rowID string) (bool, error) {
 	return idx >= 0, nil
 }
 
-// nextDataRow returns the 1-based sheet row number for the next empty data row.
-func (c *Client) nextDataRow(ctx context.Context) (int, error) {
+func (c *Client) writeAtSheetRow(ctx context.Context, sheetRow1Based int, row Row) error {
+	a1 := fmt.Sprintf("%s!A%d:H%d", c.sheetName, sheetRow1Based, sheetRow1Based)
+	_, err := c.svc.Spreadsheets.Values.Update(c.spreadsheetID, a1, &gapi.ValueRange{
+		Values: [][]any{rowValues(row)},
+	}).ValueInputOption("USER_ENTERED").Context(ctx).Do()
+	if err != nil {
+		return fmt.Errorf("write row %d: %w", sheetRow1Based, err)
+	}
+	return nil
+}
+
+func (c *Client) readAllValues(ctx context.Context) ([][]any, error) {
 	resp, err := c.svc.Spreadsheets.Values.Get(
 		c.spreadsheetID,
 		fmt.Sprintf("%s!A:H", c.sheetName),
 	).Context(ctx).Do()
 	if err != nil {
-		return 0, fmt.Errorf("list rows: %w", err)
+		return nil, fmt.Errorf("list rows: %w", err)
 	}
+	return resp.Values, nil
+}
+
+// nextDataRow returns the 1-based sheet row number for the next empty data row.
+func (c *Client) nextDataRow(ctx context.Context) (int, error) {
+	values, err := c.readAllValues(ctx)
+	if err != nil {
+		return 0, err
+	}
+	return nextEmptySheetRow(values), nil
+}
+
+func nextEmptySheetRow(values [][]any) int {
 	// Row 1 is headers; first empty row after last non-empty wins.
 	last := 1
-	for i, row := range resp.Values {
+	for i, row := range values {
 		if rowHasContent(row) {
 			last = i + 1 // convert 0-based index to 1-based sheet row
 		}
 	}
-	return last + 1, nil
+	return last + 1
+}
+
+func indexByRowID(values [][]any, rowID string) int {
+	want := strings.TrimSpace(rowID)
+	if want == "" {
+		return -1
+	}
+	for i, row := range values {
+		if i == 0 {
+			continue
+		}
+		if cellString(row, 0) == want {
+			return i
+		}
+	}
+	return -1
+}
+
+func indexByCompanyPosition(values [][]any, company, position string) int {
+	want := companyPositionKey(company, position)
+	if want == "\x00" {
+		return -1
+	}
+	for i, row := range values {
+		if i == 0 {
+			continue
+		}
+		if companyPositionKey(cellString(row, 1), cellString(row, 2)) == want {
+			return i
+		}
+	}
+	return -1
+}
+
+func companyPositionKey(company, position string) string {
+	return strings.ToLower(strings.TrimSpace(company)) + "\x00" + strings.ToLower(strings.TrimSpace(position))
+}
+
+func cellString(row []any, i int) string {
+	if i < 0 || i >= len(row) {
+		return ""
+	}
+	return strings.TrimSpace(fmt.Sprint(row[i]))
+}
+
+func parseDataRow(row []any) Row {
+	return Row{
+		RowID:       cellString(row, 0),
+		Company:     cellString(row, 1),
+		Position:    cellString(row, 2),
+		Status:      cellString(row, 3),
+		AppliedAt:   cellString(row, 4),
+		InterviewAt: cellString(row, 5),
+		OAAt:        cellString(row, 6),
+		Notes:       cellString(row, 7),
+	}
 }
 
 func rowHasContent(row []any) bool {
@@ -415,23 +517,11 @@ func rowHasContent(row []any) bool {
 }
 
 func (c *Client) findRowIndexByID(ctx context.Context, rowID string) (int, error) {
-	resp, err := c.svc.Spreadsheets.Values.Get(
-		c.spreadsheetID,
-		fmt.Sprintf("%s!A:A", c.sheetName),
-	).Context(ctx).Do()
+	values, err := c.readAllValues(ctx)
 	if err != nil {
-		return -1, fmt.Errorf("list row ids: %w", err)
+		return -1, err
 	}
-	want := strings.TrimSpace(rowID)
-	for i, row := range resp.Values {
-		if i == 0 {
-			continue
-		}
-		if len(row) > 0 && strings.TrimSpace(fmt.Sprint(row[0])) == want {
-			return i, nil
-		}
-	}
-	return -1, nil
+	return indexByRowID(values, rowID), nil
 }
 
 func (c *Client) sheetID(ctx context.Context) (int64, error) {

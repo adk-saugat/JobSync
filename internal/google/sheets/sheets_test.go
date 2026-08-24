@@ -43,3 +43,25 @@ func TestVisibleHeaders(t *testing.T) {
 		t.Fatalf("first header = %q", Headers[0])
 	}
 }
+
+func TestIndexByCompanyPosition(t *testing.T) {
+	values := [][]any{
+		{"Row ID", "Company", "Position"},
+		{"id-1", "Serval", "Software Engineer Intern"},
+		{"id-2", "Zipline", "Software Engineer Intern (Spring 2027)"},
+		{"id-3", "serval", "software engineer intern"}, // duplicate, later
+	}
+	idx := indexByCompanyPosition(values, "Serval", "Software Engineer Intern")
+	if idx != 1 {
+		t.Fatalf("idx=%d want 1 (first match)", idx)
+	}
+	if indexByCompanyPosition(values, "Missing", "Role") != -1 {
+		t.Fatal("expected miss")
+	}
+	if indexByRowID(values, "id-2") != 2 {
+		t.Fatal("expected id-2 at index 2")
+	}
+	if nextEmptySheetRow(values) != 5 {
+		t.Fatalf("next empty = %d want 5", nextEmptySheetRow(values))
+	}
+}

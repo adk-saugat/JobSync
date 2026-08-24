@@ -54,8 +54,8 @@ type GeminiAPI interface {
 
 // SheetsAPI is the tracker surface used by syncer.
 type SheetsAPI interface {
-	AppendRow(ctx context.Context, row sheets.Row) error
-	UpdateRowByID(ctx context.Context, row sheets.Row) error
+	WriteRow(ctx context.Context, row sheets.Row) error
+	FindByCompanyAndPosition(ctx context.Context, company, position string) (*sheets.Row, error)
 }
 
 // Store is the SQLite surface used by syncer.
@@ -325,11 +325,26 @@ func (r *Runner) upsert(ctx context.Context, msg *gmail.Message, ext *gemini.Ext
 	}
 
 	if existing == nil {
+		// Sheet is shared across local + cloud DBs. Reclaim an existing sheet row
+		// so we update instead of appending a duplicate.
+		sheetRow, err := r.Sheets.FindByCompanyAndPosition(ctx, company, position)
+		if err != nil {
+			return false, false, "", err
+		}
 		rowID := uuid.NewString()
+		status := ext.Status
+		if sheetRow != nil {
+			if strings.TrimSpace(sheetRow.RowID) != "" {
+				rowID = strings.TrimSpace(sheetRow.RowID)
+			}
+			if !domain.ShouldUpdateStatus(sheetRow.Status, ext.Status) && sheetRow.Status != "" {
+				status = sheetRow.Status
+			}
+		}
 		app := &domain.Application{
 			Company:       company,
 			Position:      position,
-			Status:        ext.Status,
+			Status:        status,
 			AppliedAt:     appliedAt,
 			InterviewAt:   interviewAt,
 			OAAt:          oaAt,
@@ -338,13 +353,19 @@ func (r *Runner) upsert(ctx context.Context, msg *gmail.Message, ext *gemini.Ext
 			RawExcerpt:    excerpt,
 		}
 		if dryRun {
+			if sheetRow != nil {
+				return false, true, rowID, nil
+			}
 			return true, false, rowID, nil
 		}
 		if err := r.DB.CreateApplication(ctx, app); err != nil {
 			return false, false, "", err
 		}
-		if err := r.Sheets.AppendRow(ctx, toSheetRow(app)); err != nil {
+		if err := r.Sheets.WriteRow(ctx, toSheetRow(app)); err != nil {
 			return false, false, "", err
+		}
+		if sheetRow != nil {
+			return false, true, app.ID, nil
 		}
 		return true, false, app.ID, nil
 	}
@@ -388,15 +409,8 @@ func (r *Runner) upsert(ctx context.Context, msg *gmail.Message, ext *gemini.Ext
 	if err := r.DB.UpdateApplication(ctx, existing); err != nil {
 		return false, false, "", err
 	}
-	if err := r.Sheets.UpdateRowByID(ctx, toSheetRow(existing)); err != nil {
-		// If sheet row missing, append once.
-		if strings.Contains(err.Error(), "not found") {
-			if err := r.Sheets.AppendRow(ctx, toSheetRow(existing)); err != nil {
-				return false, false, "", err
-			}
-		} else {
-			return false, false, "", err
-		}
+	if err := r.Sheets.WriteRow(ctx, toSheetRow(existing)); err != nil {
+		return false, false, "", err
 	}
 	return false, true, existing.ID, nil
 }
