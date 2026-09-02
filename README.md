@@ -6,13 +6,15 @@ JobSync reads your job emails from Gmail, figures out the status (applied, inter
 
 **You need:** a Gmail account and a free [Gemini API key](https://aistudio.google.com/apikey).
 
+**Setup site:** https://jobsync-b7ltqpwroa-uc.a.run.app
+
 ---
 
 ## Choose how to set up
 
 ### Option A — Web (easiest)
 
-1. Open **[the setup site](https://jobsync-b7ltqpwroa-uc.a.run.app)**
+1. Open https://jobsync-b7ltqpwroa-uc.a.run.app
 2. Sign in with Google
 3. Paste your Gemini API key
 
