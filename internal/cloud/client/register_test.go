@@ -36,6 +36,31 @@ func TestRegisterSuccess(t *testing.T) {
 	}
 }
 
+func TestLookupFound(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/lookup" {
+			http.NotFound(w, r)
+			return
+		}
+		writeJSON(w, http.StatusOK, LookupResponse{
+			Found:         true,
+			AccountID:     "jane_at_gmail.com",
+			SpreadsheetID: "sheet-123",
+			SheetName:     "Applications",
+			HasGeminiKey:  true,
+		})
+	}))
+	defer srv.Close()
+
+	out, err := Lookup(context.Background(), srv.URL, `{"access_token":"x","refresh_token":"y"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !out.Found || out.SpreadsheetID != "sheet-123" {
+		t.Fatalf("unexpected lookup: %+v", out)
+	}
+}
+
 func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)

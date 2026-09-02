@@ -3,9 +3,11 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
+	"github.com/saugatadhikari/jobSync/internal/cloud/client"
 	"github.com/saugatadhikari/jobSync/internal/config"
 	"github.com/saugatadhikari/jobSync/internal/google/auth"
 	"github.com/saugatadhikari/jobSync/internal/google/gmail"
@@ -36,6 +38,14 @@ func runInit(args []string) error {
 	fmt.Println("Google sign-in: ok (Sheets + Gmail)")
 
 	if cfg.SpreadsheetID == "" {
+		if reused, err := adoptCloudSheet(ctx, cfg); err != nil {
+			fmt.Printf("Cloud lookup skipped: %v\n", err)
+		} else if reused {
+			fmt.Printf("Found your existing cloud sheet for this Gmail.\n")
+		}
+	}
+
+	if cfg.SpreadsheetID == "" {
 		fmt.Println("Creating JobSync tracker spreadsheet...")
 		id, err := sheets.CreateTrackerSpreadsheet(ctx, httpClient, "JobSync Tracker", cfg.SheetName)
 		if err != nil {
@@ -47,7 +57,7 @@ func runInit(args []string) error {
 		}
 		fmt.Printf("Created spreadsheet: %s\n", sheets.SpreadsheetURL(id))
 	} else {
-		fmt.Printf("Using existing spreadsheet: %s\n", sheets.SpreadsheetURL(cfg.SpreadsheetID))
+		fmt.Printf("Using spreadsheet: %s\n", sheets.SpreadsheetURL(cfg.SpreadsheetID))
 		client, err := sheets.NewClient(ctx, httpClient, cfg.SpreadsheetID, cfg.SheetName)
 		if err != nil {
 			return err
@@ -85,6 +95,40 @@ func runInit(args []string) error {
 		fmt.Println("      jobsync sync --dry-run --limit 5   (optional local test)")
 	}
 	return nil
+}
+
+// adoptCloudSheet checks the hosted server for a tracker already linked to this Gmail.
+func adoptCloudSheet(ctx context.Context, cfg *config.Config) (bool, error) {
+	serverURL := resolveCloudServerURL("", cfg)
+	if serverURL == "" {
+		return false, fmt.Errorf("no cloud server URL")
+	}
+	tokenPath, err := config.TokenPath()
+	if err != nil {
+		return false, err
+	}
+	tokenJSON, err := os.ReadFile(tokenPath)
+	if err != nil {
+		return false, err
+	}
+	out, err := client.Lookup(ctx, serverURL, string(tokenJSON))
+	if err != nil {
+		return false, err
+	}
+	if out == nil || !out.Found || strings.TrimSpace(out.SpreadsheetID) == "" {
+		return false, nil
+	}
+	cfg.SpreadsheetID = strings.TrimSpace(out.SpreadsheetID)
+	if strings.TrimSpace(out.SheetName) != "" {
+		cfg.SheetName = strings.TrimSpace(out.SheetName)
+	}
+	cfg.CloudAccountID = out.AccountID
+	cfg.CloudServerURL = serverURL
+	cfg.CloudSyncEnabled = true
+	if err := config.Save(cfg); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func ensureGeminiKey(cfg *config.Config) error {

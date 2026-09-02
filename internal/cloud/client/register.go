@@ -36,6 +36,20 @@ type SetupCompleteResponse struct {
 	ReusedSheet    bool   `json:"reused_sheet"`
 }
 
+// LookupRequest asks the server for an existing cloud registration.
+type LookupRequest struct {
+	OAuthTokenJSON string `json:"oauth_token_json"`
+}
+
+// LookupResponse is returned by POST /lookup.
+type LookupResponse struct {
+	Found         bool   `json:"found"`
+	AccountID     string `json:"account_id,omitempty"`
+	SpreadsheetID string `json:"spreadsheet_id,omitempty"`
+	SheetName     string `json:"sheet_name,omitempty"`
+	HasGeminiKey  bool   `json:"has_gemini_key,omitempty"`
+}
+
 // Register posts account credentials to the hosted JobSync server.
 // The Google OAuth token from init proves identity — no shared secret required.
 func Register(ctx context.Context, serverURL string, req RegisterRequest) (*RegisterResponse, error) {
@@ -80,6 +94,48 @@ func Register(ctx context.Context, serverURL string, req RegisterRequest) (*Regi
 	}
 	if strings.TrimSpace(out.AccountID) == "" {
 		return nil, fmt.Errorf("register response missing account_id")
+	}
+	return &out, nil
+}
+
+// Lookup asks whether this Google account already has a cloud tracker sheet.
+func Lookup(ctx context.Context, serverURL string, oauthTokenJSON string) (*LookupResponse, error) {
+	serverURL = strings.TrimRight(strings.TrimSpace(serverURL), "/")
+	if serverURL == "" {
+		return nil, fmt.Errorf("cloud server URL is empty")
+	}
+	body, err := json.Marshal(LookupRequest{OAuthTokenJSON: oauthTokenJSON})
+	if err != nil {
+		return nil, err
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, serverURL+"/lookup", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	c := &http.Client{Timeout: 30 * time.Second}
+	resp, err := c.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("lookup request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		msg := strings.TrimSpace(string(respBody))
+		if msg == "" {
+			msg = resp.Status
+		}
+		return nil, fmt.Errorf("lookup failed (%d): %s", resp.StatusCode, msg)
+	}
+
+	var out LookupResponse
+	if err := json.Unmarshal(respBody, &out); err != nil {
+		return nil, fmt.Errorf("decode lookup response: %w", err)
 	}
 	return &out, nil
 }

@@ -93,7 +93,7 @@ jobsync sync --since 2026-08-01
 | Sign-in stopped working (CLI) | Delete `~/.config/jobsync/token.json`, then run `init` and `cloud push` again |
 | Web setup fails after Google | Ask the maintainer to check the OAuth redirect URI (see [DEPLOY.md](docs/DEPLOY.md)) |
 
-Web and CLI both register you for the **same** daily cloud sync. Use whichever is easier — you don’t need both.
+Web and CLI both register you for the **same** daily cloud sync. If you already set up on the web, `jobsync init` automatically reuses that Gmail’s existing tracker sheet — no manual config.
 
 ---
 

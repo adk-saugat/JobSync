@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -43,6 +44,7 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", s.handleHealth)
 	mux.HandleFunc("POST /register", s.handleRegister)
+	mux.HandleFunc("POST /lookup", s.handleLookup)
 	mux.HandleFunc("POST /sync", s.handleSync)
 	mux.HandleFunc("POST /sync/all", s.handleSyncAll)
 
@@ -84,6 +86,25 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		Status:    "registered",
 	})
 	log.Printf("register ok account=%s", accountID)
+}
+
+func (s *Server) handleLookup(w http.ResponseWriter, r *http.Request) {
+	var req client.LookupRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	out, err := service.LookupAccount(ctx, s.DB, req.OAuthTokenJSON)
+	if err != nil {
+		log.Printf("lookup error: %v", err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
