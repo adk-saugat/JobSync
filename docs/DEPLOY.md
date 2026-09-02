@@ -48,6 +48,8 @@ Users of release binaries need no OAuth file. Forks without baked credentials se
 ```yaml
 DATABASE_URL: "postgresql://...?sslmode=require"
 SYNC_SECRET: "openssl-rand-hex-32"
+# optional; defaults to SYNC_SECRET — encrypts Gemini keys + OAuth tokens in Neon
+# DATA_ENCRYPTION_KEY: "openssl-rand-hex-32"
 GOOGLE_OAUTH_CLIENT_ID: "....apps.googleusercontent.com"
 GOOGLE_OAUTH_CLIENT_SECRET: "GOCSPX-..."
 ```

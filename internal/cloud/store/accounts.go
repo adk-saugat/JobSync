@@ -9,11 +9,13 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/saugatadhikari/jobSync/internal/cloud/secret"
 	"github.com/saugatadhikari/jobSync/internal/config"
 	"github.com/saugatadhikari/jobSync/internal/domain"
 )
 
 // UpsertAccountFromLocal saves local CLI config + OAuth token to Neon.
+// Gemini API keys and OAuth tokens are encrypted at rest.
 func (s *Store) UpsertAccountFromLocal(ctx context.Context, cfg *config.Config, tokenJSON []byte) error {
 	if cfg == nil {
 		return fmt.Errorf("config is nil")
@@ -28,7 +30,17 @@ func (s *Store) UpsertAccountFromLocal(ctx context.Context, cfg *config.Config, 
 		sheetName = config.DefaultSheetName
 	}
 
-	_, err := s.SQL.ExecContext(ctx, `
+	encKey := secret.KeyFromEnv()
+	geminiEnc, err := secret.Encrypt(encKey, cfg.GeminiAPIKey)
+	if err != nil {
+		return fmt.Errorf("encrypt gemini key: %w", err)
+	}
+	tokenEnc, err := secret.Encrypt(encKey, string(tokenJSON))
+	if err != nil {
+		return fmt.Errorf("encrypt oauth token: %w", err)
+	}
+
+	_, err = s.SQL.ExecContext(ctx, `
 		INSERT INTO accounts (
 			id, spreadsheet_id, sheet_name, gemini_api_key, gemini_model,
 			oauth_token_json, auth_scopes_version,
@@ -45,9 +57,9 @@ func (s *Store) UpsertAccountFromLocal(ctx context.Context, cfg *config.Config, 
 		s.AccountID,
 		cfg.SpreadsheetID,
 		sheetName,
-		cfg.GeminiAPIKey,
+		geminiEnc,
 		model,
-		string(tokenJSON),
+		tokenEnc,
 		cfg.AuthScopesVersion,
 		now,
 	)
@@ -69,9 +81,13 @@ func (s *Store) GetAccount(ctx context.Context) (*domain.Account, error) {
 
 // SaveOAuthToken updates the stored Google OAuth token (after refresh).
 func (s *Store) SaveOAuthToken(ctx context.Context, tokenJSON []byte) error {
+	tokenEnc, err := secret.Encrypt(secret.KeyFromEnv(), string(tokenJSON))
+	if err != nil {
+		return fmt.Errorf("encrypt oauth token: %w", err)
+	}
 	res, err := s.SQL.ExecContext(ctx, `
 		UPDATE accounts SET oauth_token_json = $1, updated_at = $2 WHERE id = $3`,
-		string(tokenJSON), time.Now().UTC(), s.AccountID,
+		tokenEnc, time.Now().UTC(), s.AccountID,
 	)
 	if err != nil {
 		return fmt.Errorf("save oauth token: %w", err)
@@ -99,10 +115,31 @@ func scanAccount(row *sql.Row) (*domain.Account, error) {
 	if err != nil {
 		return nil, fmt.Errorf("scan account: %w", err)
 	}
+	if err := decryptAccountSecrets(&acc); err != nil {
+		return nil, err
+	}
 	if acc.GeminiModel == "" {
 		acc.GeminiModel = config.DefaultGeminiModel
 	}
 	return &acc, nil
+}
+
+func decryptAccountSecrets(acc *domain.Account) error {
+	if acc == nil {
+		return nil
+	}
+	key := secret.KeyFromEnv()
+	gemini, err := secret.Decrypt(key, acc.GeminiAPIKey)
+	if err != nil {
+		return fmt.Errorf("decrypt gemini key: %w", err)
+	}
+	token, err := secret.Decrypt(key, acc.OAuthTokenJSON)
+	if err != nil {
+		return fmt.Errorf("decrypt oauth token: %w", err)
+	}
+	acc.GeminiAPIKey = gemini
+	acc.OAuthTokenJSON = token
+	return nil
 }
 
 // AccountToConfig maps a cloud account to local config shape for reuse.

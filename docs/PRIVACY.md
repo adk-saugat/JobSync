@@ -32,6 +32,8 @@ JobSync does **not** send email, delete mail, or access Gmail labels beyond what
 
 With your permission, the same credentials and settings above are stored in the maintainer’s **Neon Postgres** database so daily sync can run on a server. Each user’s data is isolated by account id (derived from your Gmail address).
 
+Gemini API keys and Google OAuth tokens are **encrypted at rest** in the database (AES-GCM) using a server-side key. They are decrypted only in memory when a sync runs.
+
 Web setup stores a short-lived encrypted session cookie only while you finish Google sign-in and paste your Gemini key; it is cleared when setup completes.
 
 The maintainer does **not** sell or share your data with third parties for advertising.
@@ -67,6 +69,7 @@ Email content sent to Gemini is limited to what is needed for extraction. JobSyn
 ## Security
 
 - OAuth tokens and API keys are stored with restrictive file permissions locally
+- Cloud Gemini keys and OAuth tokens are encrypted at rest (AES-GCM); decrypted only for sync
 - Cloud database connections use TLS (`sslmode=require`)
 - Sync endpoints require maintainer secrets; users register with their own Google login
 
