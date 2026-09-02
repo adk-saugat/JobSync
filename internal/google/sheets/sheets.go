@@ -2,10 +2,13 @@ package sheets
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
 	gapi "google.golang.org/api/sheets/v4"
 
@@ -98,10 +101,52 @@ func SpreadsheetURL(id string) string {
 
 // SetupSheet writes headers and applies formatting (safe to re-run).
 func (c *Client) SetupSheet(ctx context.Context) error {
-	if err := c.EnsureHeaders(ctx); err != nil {
-		return err
+	return withRetry(ctx, 4, func() error {
+		if err := c.EnsureHeaders(ctx); err != nil {
+			return err
+		}
+		return c.ApplyFormatting(ctx)
+	})
+}
+
+func withRetry(ctx context.Context, attempts int, fn func() error) error {
+	if attempts < 1 {
+		attempts = 1
 	}
-	return c.ApplyFormatting(ctx)
+	var err error
+	for i := 0; i < attempts; i++ {
+		if err = fn(); err == nil {
+			return nil
+		}
+		if !isTransientGoogleAPI(err) || i == attempts-1 {
+			return err
+		}
+		delay := time.Duration(i+1) * time.Second
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(delay):
+		}
+	}
+	return err
+}
+
+func isTransientGoogleAPI(err error) bool {
+	if err == nil {
+		return false
+	}
+	var gerr *googleapi.Error
+	if errors.As(err, &gerr) {
+		switch gerr.Code {
+		case http.StatusTooManyRequests, http.StatusInternalServerError,
+			http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+			return true
+		}
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "backenderror") ||
+		strings.Contains(msg, "currently unavailable") ||
+		strings.Contains(msg, "503")
 }
 
 // EnsureHeaders writes the header row. If an old layout is detected, clears the tab first.

@@ -1,6 +1,10 @@
 package sheets
 
-import "testing"
+import (
+	"testing"
+
+	"google.golang.org/api/googleapi"
+)
 
 func TestHeaderMatches(t *testing.T) {
 	row := make([]any, len(Headers))
@@ -63,5 +67,14 @@ func TestIndexByCompanyPosition(t *testing.T) {
 	}
 	if nextEmptySheetRow(values) != 5 {
 		t.Fatalf("next empty = %d want 5", nextEmptySheetRow(values))
+	}
+}
+
+func TestIsTransientGoogleAPI(t *testing.T) {
+	if !isTransientGoogleAPI(&googleapi.Error{Code: 503, Message: "unavailable"}) {
+		t.Fatal("expected 503 transient")
+	}
+	if isTransientGoogleAPI(&googleapi.Error{Code: 403, Message: "forbidden"}) {
+		t.Fatal("403 should not be transient")
 	}
 }

@@ -266,7 +266,8 @@ func ClearToken() error {
 }
 
 // HTTPClient returns an authenticated HTTP client, refreshing/saving tokens as needed.
-// If no token exists, it runs Login.
+// If no token exists, it runs Login. If the saved refresh token is revoked/expired,
+// it clears the token and runs Login again.
 func HTTPClient(ctx context.Context, scopes []string) (*http.Client, error) {
 	cfg, err := LoadOAuthConfig(scopes)
 	if err != nil {
@@ -282,6 +283,26 @@ func HTTPClient(ctx context.Context, scopes []string) (*http.Client, error) {
 		if err != nil {
 			return nil, err
 		}
+	} else {
+		// Force a refresh check so revoked grants re-open the browser login.
+		src := cfg.TokenSource(ctx, tok)
+		if refreshed, rerr := src.Token(); rerr != nil {
+			if isInvalidGrant(rerr) {
+				fmt.Println("Google sign-in expired — please sign in again...")
+				if err := ClearToken(); err != nil {
+					return nil, err
+				}
+				tok, err = Login(ctx, scopes)
+				if err != nil {
+					return nil, err
+				}
+			} else {
+				return nil, rerr
+			}
+		} else {
+			tok = refreshed
+			_ = SaveToken(tok)
+		}
 	}
 
 	tokenSource := cfg.TokenSource(ctx, tok)
@@ -290,6 +311,15 @@ func HTTPClient(ctx context.Context, scopes []string) (*http.Client, error) {
 		tok:  tok,
 	}
 	return oauth2.NewClient(ctx, returning), nil
+}
+
+func isInvalidGrant(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "invalid_grant") ||
+		strings.Contains(msg, "token has been expired or revoked")
 }
 
 // HTTPClientFromStoredToken builds an HTTP client from JSON token bytes.
