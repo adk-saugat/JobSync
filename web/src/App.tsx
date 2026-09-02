@@ -127,8 +127,10 @@ export default function App() {
           <div className="step-label">You’re set</div>
           <h2>Daily sync is on</h2>
           <p>
-            JobSync will update your sheet automatically each day. You can also keep using the CLI
-            anytime.
+            {result.reused_sheet
+              ? "We found your existing JobSync tracker for this Gmail and kept using it."
+              : "JobSync created your tracker sheet."}{" "}
+            It will update automatically each day. You can also use the CLI anytime.
           </p>
           <a className="sheet-link" href={result.spreadsheet_url} target="_blank" rel="noreferrer">
             Open your JobSync Tracker →

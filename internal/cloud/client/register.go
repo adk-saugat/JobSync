@@ -33,6 +33,7 @@ type SetupCompleteResponse struct {
 	SpreadsheetID  string `json:"spreadsheet_id"`
 	SpreadsheetURL string `json:"spreadsheet_url"`
 	Status         string `json:"status"`
+	ReusedSheet    bool   `json:"reused_sheet"`
 }
 
 // Register posts account credentials to the hosted JobSync server.

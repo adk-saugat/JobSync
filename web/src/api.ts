@@ -8,6 +8,7 @@ export type SetupCompleteResponse = {
   spreadsheet_id: string;
   spreadsheet_url: string;
   status: string;
+  reused_sheet?: boolean;
 };
 
 export async function fetchSession(): Promise<SetupSession> {
