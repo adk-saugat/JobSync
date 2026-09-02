@@ -13,7 +13,7 @@ import (
 )
 
 // DefaultQuery targets application-status style mail (not general job marketing).
-const DefaultQuery = `("thank you for applying" OR "thanks for applying" OR "application received" OR "application status" OR "unfortunately" OR "not moving forward" OR "no longer being considered" OR interview OR "coding challenge" OR "online assessment" OR hackerrank OR codesignal OR "take-home" OR "we are pleased to offer" OR "offer letter" OR "next steps in your application") newer_than:14d -category:promotions -category:social`
+const DefaultQuery = `("thank you for applying" OR "thanks for applying" OR "application received" OR "application status" OR "unfortunately" OR "not moving forward" OR "no longer being considered" OR interview OR "coding challenge" OR "online assessment" OR "assessment for" OR "coding assessment" OR "technical assessment" OR "complete your assessment" OR "assessment invitation" OR hackerrank OR codesignal OR codility OR "take-home" OR "we are pleased to offer" OR "offer letter" OR "next steps in your application") newer_than:14d -category:promotions -category:social`
 
 // MessageMeta is lightweight search result data.
 type MessageMeta struct {
@@ -216,7 +216,9 @@ func LooksLikeStatusUpdate(subject, from string) bool {
 		"decided not to", "will not be moving", "other candidates",
 		"interview", "phone screen", "onsite", "schedule a call",
 		"coding challenge", "online assessment", "hackerrank", "codesignal",
-		"take-home", "assessment invite", "oa invitation",
+		"codility", "take-home", "assessment invite", "oa invitation",
+		"assessment for", "coding assessment", "technical assessment",
+		"complete your assessment", "complete the assessment", "assessment invitation",
 		"offer letter", "pleased to offer", "job offer", "extend an offer",
 		"next steps in your application", "move forward with your application",
 		"candidacy",

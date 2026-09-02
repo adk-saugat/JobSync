@@ -27,6 +27,14 @@ type RegisterResponse struct {
 	Status    string `json:"status"`
 }
 
+// SetupCompleteResponse is returned by the web setup wizard.
+type SetupCompleteResponse struct {
+	AccountID      string `json:"account_id"`
+	SpreadsheetID  string `json:"spreadsheet_id"`
+	SpreadsheetURL string `json:"spreadsheet_url"`
+	Status         string `json:"status"`
+}
+
 // Register posts account credentials to the hosted JobSync server.
 // The Google OAuth token from init proves identity — no shared secret required.
 func Register(ctx context.Context, serverURL string, req RegisterRequest) (*RegisterResponse, error) {

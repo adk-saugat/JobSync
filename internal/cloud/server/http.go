@@ -45,6 +45,20 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /register", s.handleRegister)
 	mux.HandleFunc("POST /sync", s.handleSync)
 	mux.HandleFunc("POST /sync/all", s.handleSyncAll)
+
+	mux.HandleFunc("GET /setup/oauth/start", s.handleSetupOAuthStart)
+	mux.HandleFunc("GET /setup/oauth/callback", s.handleSetupOAuthCallback)
+	mux.HandleFunc("GET /setup/session", s.handleSetupSession)
+	mux.HandleFunc("POST /setup/complete", s.handleSetupComplete)
+
+	spa := s.spaHandler()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		spa.ServeHTTP(w, r)
+	})
 	return mux
 }
 

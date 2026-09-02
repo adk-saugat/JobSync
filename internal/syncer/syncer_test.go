@@ -14,11 +14,13 @@ import (
 )
 
 type fakeGmail struct {
-	metas []gmail.MessageMeta
-	msgs  map[string]*gmail.Message
+	metas     []gmail.MessageMeta
+	msgs      map[string]*gmail.Message
+	lastAfter time.Time
 }
 
 func (f *fakeGmail) Search(ctx context.Context, query string, limit int64, after time.Time) ([]gmail.MessageMeta, error) {
+	f.lastAfter = after
 	return f.metas, nil
 }
 func (f *fakeGmail) GetMessage(ctx context.Context, id string) (*gmail.Message, error) {
@@ -85,6 +87,7 @@ type fakeStore struct {
 	processed map[string]bool
 	apps      map[string]*domain.Application // key company|position lower
 	runs      int
+	watermark string
 }
 
 func newFakeStore() *fakeStore {
@@ -121,7 +124,7 @@ func (f *fakeStore) UpdateApplication(ctx context.Context, app *domain.Applicati
 	return nil
 }
 func (f *fakeStore) GetLastSuccessfulWatermark(ctx context.Context) (string, error) {
-	return "", nil
+	return f.watermark, nil
 }
 func (f *fakeStore) CreateSyncRun(ctx context.Context, run *domain.SyncRun) error {
 	f.runs++
@@ -244,6 +247,124 @@ func TestRunReclaimsExistingSheetRow(t *testing.T) {
 	}
 	if app.SheetRowID != "sheet-row-1" {
 		t.Fatalf("sheet row id = %q", app.SheetRowID)
+	}
+}
+
+func TestRunUpdatesExistingRowToAssessment(t *testing.T) {
+	date := time.Date(2026, 8, 27, 17, 38, 0, 0, time.UTC)
+	store := newFakeStore()
+	store.apps["TikTok|Software Engineer Intern"] = &domain.Application{
+		ID:         "app-tt",
+		Company:    "TikTok",
+		Position:   "Software Engineer Intern",
+		Status:     domain.StatusApplied,
+		SheetRowID: "sheet-tt",
+	}
+	sheetsAPI := &fakeSheets{
+		rows: map[string]sheets.Row{
+			"tiktok|software engineer intern": {
+				RowID:    "sheet-tt",
+				Company:  "TikTok",
+				Position: "Software Engineer Intern",
+				Status:   domain.StatusApplied,
+			},
+		},
+	}
+	gem := &fakeGemini{ext: &gemini.Extraction{
+		IsJobRelated: true,
+		Company:      "TikTok",
+		Position:     "Software Engineer Intern",
+		Status:       domain.StatusAssessment,
+		Confidence:   0.95,
+		Summary:      "Invited to complete the online assessment",
+	}}
+	g := &fakeGmail{
+		metas: []gmail.MessageMeta{{ID: "m-oa", Date: date}},
+		msgs: map[string]*gmail.Message{
+			"m-oa": {
+				ID:      "m-oa",
+				Subject: "You're invited! Assessment for Software Engineer Intern - TikTok Early Careers",
+				From:    "TikTok <job@careers.tiktok.com>",
+				Date:    date,
+				Body:    "Please complete your assessment",
+			},
+		},
+	}
+
+	runner := &Runner{Gmail: g, Gemini: gem, Sheets: sheetsAPI, DB: store}
+	res, err := runner.Run(context.Background(), Options{Limit: 5, MinInterval: time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.EmailsCreated != 0 || res.EmailsUpdated != 1 {
+		t.Fatalf("expected assessment update, got %+v", res)
+	}
+	app := store.apps["TikTok|Software Engineer Intern"]
+	if app.Status != domain.StatusAssessment {
+		t.Fatalf("status = %q", app.Status)
+	}
+	if sheetsAPI.rows["tiktok|software engineer intern"].Status != domain.StatusAssessment {
+		t.Fatalf("sheet status = %q", sheetsAPI.rows["tiktok|software engineer intern"].Status)
+	}
+}
+
+// A quota stop must not move the watermark past mail it never looked at,
+// otherwise that mail is stranded and never syncs.
+func TestRunKeepsWatermarkWhenOlderMailPending(t *testing.T) {
+	newer := time.Date(2026, 8, 28, 17, 30, 0, 0, time.UTC)
+	older := time.Date(2026, 8, 27, 17, 38, 0, 0, time.UTC)
+	store := newFakeStore()
+	gem := &fakeGemini{err: gemini.ErrQuotaExceeded}
+	g := &fakeGmail{
+		metas: []gmail.MessageMeta{{ID: "m-new", Date: newer}, {ID: "m-old", Date: older}},
+		msgs: map[string]*gmail.Message{
+			"m-new": {ID: "m-new", Subject: "Interview invitation", From: "hr@acme.com", Date: newer, Body: "hi"},
+			"m-old": {ID: "m-old", Subject: "Assessment for Software Engineer Intern", From: "job@careers.tiktok.com", Date: older, Body: "hi"},
+		},
+	}
+
+	runner := &Runner{Gmail: g, Gemini: gem, Sheets: &fakeSheets{}, DB: store}
+	res, err := runner.Run(context.Background(), Options{Limit: 5, MinInterval: time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.QuotaExhausted {
+		t.Fatalf("expected quota exhausted, got %+v", res)
+	}
+	if res.Watermark != "" {
+		t.Fatalf("watermark must not advance past pending mail, got %q", res.Watermark)
+	}
+}
+
+func TestRunSinceOverridesWatermark(t *testing.T) {
+	date := time.Date(2026, 8, 27, 17, 38, 0, 0, time.UTC)
+	store := newFakeStore()
+	store.watermark = "2026-08-28T17:30:41Z"
+	gem := &fakeGemini{ext: &gemini.Extraction{
+		IsJobRelated: true, Company: "TikTok", Position: "SWE Intern",
+		Status: domain.StatusAssessment, Confidence: 0.95, Summary: "OA invite",
+	}}
+	g := &fakeGmail{
+		metas: []gmail.MessageMeta{{ID: "m-oa", Date: date}},
+		msgs: map[string]*gmail.Message{
+			"m-oa": {ID: "m-oa", Subject: "Assessment for SWE Intern", From: "job@careers.tiktok.com", Date: date, Body: "complete your assessment"},
+		},
+	}
+
+	runner := &Runner{Gmail: g, Gemini: gem, Sheets: &fakeSheets{}, DB: store}
+	res, err := runner.Run(context.Background(), Options{
+		Limit:       5,
+		MinInterval: time.Millisecond,
+		Since:       time.Date(2026, 8, 25, 0, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.EmailsCreated != 1 {
+		t.Fatalf("expected mail behind watermark to be rescanned, got %+v", res)
+	}
+	if g.lastAfter != time.Date(2026, 8, 25, 0, 0, 0, 0, time.UTC) {
+		t.Fatalf("search after = %v", g.lastAfter)
 	}
 }
 

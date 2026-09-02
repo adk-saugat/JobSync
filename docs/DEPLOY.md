@@ -65,6 +65,27 @@ gcloud run deploy jobsync \
   --timeout 540
 ```
 
+Also set:
+
+```yaml
+PUBLIC_BASE_URL: "https://jobsync-b7ltqpwroa-uc.a.run.app"
+```
+
+### Web setup OAuth (React wizard)
+
+The setup UI is served from the same Cloud Run URL (`/`).
+
+In Google Cloud Console → Credentials → OAuth client:
+
+1. Use a **Web application** client (recommended), or add redirect URIs if your client allows it.
+2. Authorized redirect URI:
+
+`https://jobsync-b7ltqpwroa-uc.a.run.app/setup/oauth/callback`
+
+3. Local testing: `http://127.0.0.1:8080/setup/oauth/callback`
+
+Flow: `/setup/oauth/start` → Google → paste Gemini key → creates Sheet + registers daily sync.
+
 ---
 
 ## Cloud Scheduler

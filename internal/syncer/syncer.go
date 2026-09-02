@@ -21,6 +21,9 @@ type Options struct {
 	DryRun     bool          // no SQLite / Sheets writes
 	MinInterval time.Duration // pause between Gemini calls
 	Query      string
+	// Since overrides the stored watermark, so mail already behind it is
+	// scanned again. Used by `jobsync sync --since` to recover missed mail.
+	Since time.Time
 }
 
 // Result summarizes a sync run.
@@ -119,6 +122,10 @@ func (r *Runner) Run(ctx context.Context, opts Options) (*Result, error) {
 			after = t
 		}
 	}
+	if !opts.Since.IsZero() {
+		after = opts.Since
+		watermarkStr = ""
+	}
 
 	searchLimit := opts.Limit * 3
 	if searchLimit < 20 {
@@ -134,25 +141,39 @@ func (r *Runner) Run(ctx context.Context, opts Options) (*Result, error) {
 	}
 	res.EmailsSeen = len(metas)
 
-	var newest time.Time
 	var errNotes []string
+
+	// Gmail returns newest-first, so the watermark may only advance past mail
+	// once everything older has been dealt with. Advancing on the newest
+	// handled message alone permanently strands anything skipped below it.
+	var newestDone, oldestPending time.Time
+	markDone := func(t time.Time) {
+		if t.After(newestDone) {
+			newestDone = t
+		}
+	}
+	markPending := func(t time.Time) {
+		if oldestPending.IsZero() || t.Before(oldestPending) {
+			oldestPending = t
+		}
+	}
 
 	for _, meta := range metas {
 		if int64(res.GeminiCalls) >= opts.Limit {
-			break
+			markPending(meta.Date)
+			continue
 		}
 
 		processed, err := r.DB.IsEmailProcessed(ctx, meta.ID)
 		if err != nil {
 			res.Errors++
 			errNotes = append(errNotes, err.Error())
+			markPending(meta.Date)
 			continue
 		}
 		if processed {
 			res.EmailsSkippedProcessed++
-			if meta.Date.After(newest) {
-				newest = meta.Date
-			}
+			markDone(meta.Date)
 			continue
 		}
 
@@ -160,20 +181,15 @@ func (r *Runner) Run(ctx context.Context, opts Options) (*Result, error) {
 		if err != nil {
 			res.Errors++
 			errNotes = append(errNotes, err.Error())
+			markPending(meta.Date)
 			continue
 		}
 
 		if !gmail.LooksLikeStatusUpdate(msg.Subject, msg.From) {
+			// Not persisted and not watermarked: a tighter prefilter can
+			// otherwise permanently miss real OA mail (e.g. "Assessment for…").
 			res.GeminiSkippedPrefilter++
-			if !opts.DryRun {
-				_ = r.DB.MarkEmailProcessed(ctx, domain.EmailProcessed{
-					GmailMessageID: msg.ID,
-					Classification: domain.ClassificationIgnored,
-				})
-			}
-			if msg.Date.After(newest) {
-				newest = msg.Date
-			}
+			markPending(msg.Date)
 			continue
 		}
 
@@ -191,6 +207,7 @@ func (r *Runner) Run(ctx context.Context, opts Options) (*Result, error) {
 				res.Status = domain.SyncStatusQuotaExhausted
 				errNotes = append(errNotes, "gemini quota exceeded")
 				r.logf("Gemini quota exceeded — stopping")
+				markPending(msg.Date)
 				break
 			}
 			res.Errors++
@@ -201,6 +218,7 @@ func (r *Runner) Run(ctx context.Context, opts Options) (*Result, error) {
 					Classification: domain.ClassificationError,
 				})
 			}
+			markDone(msg.Date)
 			continue
 		}
 
@@ -220,9 +238,7 @@ func (r *Runner) Run(ctx context.Context, opts Options) (*Result, error) {
 					Classification: domain.ClassificationIgnored,
 				})
 			}
-			if msg.Date.After(newest) {
-				newest = msg.Date
-			}
+			markDone(msg.Date)
 			time.Sleep(opts.MinInterval)
 			continue
 		}
@@ -238,6 +254,7 @@ func (r *Runner) Run(ctx context.Context, opts Options) (*Result, error) {
 					Classification: domain.ClassificationError,
 				})
 			}
+			markDone(msg.Date)
 			time.Sleep(opts.MinInterval)
 			continue
 		}
@@ -258,16 +275,13 @@ func (r *Runner) Run(ctx context.Context, opts Options) (*Result, error) {
 				Classification: domain.ClassificationJobUpdate,
 			})
 		}
-		if msg.Date.After(newest) {
-			newest = msg.Date
-		}
+		markDone(msg.Date)
 		time.Sleep(opts.MinInterval)
 	}
 
-	if !newest.IsZero() {
-		res.Watermark = newest.UTC().Format(time.RFC3339)
-	} else {
-		res.Watermark = watermarkStr
+	res.Watermark = watermarkStr
+	if !newestDone.IsZero() && (oldestPending.IsZero() || newestDone.Before(oldestPending)) {
+		res.Watermark = newestDone.UTC().Format(time.RFC3339)
 	}
 
 	if res.QuotaExhausted {

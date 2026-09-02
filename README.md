@@ -2,23 +2,31 @@
 
 Track your job applications automatically.
 
-JobSync reads your job emails from Gmail, figures out the status (applied, interview, rejected, etc.), and keeps a Google Sheet up to date for you. After setup, it syncs every day in the cloud — even when your Mac is closed.
+JobSync reads your job emails from Gmail, figures out the status (applied, interview, rejected, etc.), and keeps a Google Sheet up to date. After setup, it syncs every day in the cloud — even when your laptop is closed.
 
 **You need:** a Gmail account and a free [Gemini API key](https://aistudio.google.com/apikey).
 
 ---
 
-## Get started (3 steps)
+## Choose how to set up
 
-### 1. Download JobSync
+### Option A — Web (easiest)
+
+1. Open **[the setup site](https://jobsync-b7ltqpwroa-uc.a.run.app)**
+2. Sign in with Google
+3. Paste your Gemini API key
+
+Done. JobSync creates your tracker sheet and turns on daily cloud sync.
+
+### Option B — Command line
+
+#### 1. Download JobSync
 
 Go to **[Releases](https://github.com/adk-saugat/JobSync/releases/latest)** and download the file for your computer:
 
 - **Mac (M1/M2/M3):** `jobsync-darwin-arm64`
 - **Mac (Intel):** `jobsync-darwin-amd64`
 - **Linux:** `jobsync-linux-amd64`
-
-Open Terminal, go to your Downloads folder, and make it runnable:
 
 ```bash
 cd ~/Downloads
@@ -29,33 +37,27 @@ chmod +x jobsync-darwin-arm64
 
 If Mac says the file “can’t be opened”: **System Settings → Privacy & Security → Open Anyway**.
 
-### 2. Run setup
+#### 2. Run setup
 
 ```bash
 ./jobsync-darwin-arm64 init
 ```
 
-This will:
+This signs you into Google, creates a **JobSync Tracker** spreadsheet, and asks for your Gemini API key.
 
-- Sign you into Google
-- Create a **JobSync Tracker** spreadsheet
-- Ask for your Gemini API key (paste it from [AI Studio](https://aistudio.google.com/apikey))
-
-### 3. Turn on daily sync
+#### 3. Turn on daily sync
 
 ```bash
 ./jobsync-darwin-arm64 cloud push
 ```
 
-Done. Your sheet will update automatically each day.
+Done. Your sheet updates automatically each day.
 
 ---
 
-## Optional
+## Optional (CLI)
 
 ### Use `jobsync` from anywhere
-
-To run `jobsync` from any folder (not just `./jobsync-darwin-arm64`):
 
 ```bash
 mkdir -p ~/bin
@@ -64,18 +66,20 @@ echo 'export PATH=$HOME/bin:$PATH' >> ~/.zshrc
 source ~/.zshrc
 ```
 
-Then use `jobsync init`, `jobsync cloud push`, etc. (Linux: use `~/.bashrc` instead of `~/.zshrc`.)
+(Linux: use `~/.bashrc` instead of `~/.zshrc`.)
 
-Check everything looks good:
+Then run `jobsync status` or `jobsync sync` from any folder.
 
-```bash
-jobsync status
-```
-
-Sync manually anytime:
+### Manual sync anytime
 
 ```bash
 jobsync sync
+```
+
+Rescan from a date (retries skipped/failed emails):
+
+```bash
+jobsync sync --since 2026-08-01
 ```
 
 ---
@@ -85,8 +89,11 @@ jobsync sync
 | If this happens… | Do this |
 |------------------|---------|
 | Google says “Access blocked” | Ask the person who shared JobSync to add your Gmail as a test user |
-| It asks for a Gemini key | Run `init` again or get a key from [AI Studio](https://aistudio.google.com/apikey) |
-| Sign-in stopped working | Delete `~/.config/jobsync/token.json`, then run `init` and `cloud push` again |
+| It asks for a Gemini key | Get a key from [AI Studio](https://aistudio.google.com/apikey) and finish setup |
+| Sign-in stopped working (CLI) | Delete `~/.config/jobsync/token.json`, then run `init` and `cloud push` again |
+| Web setup fails after Google | Ask the maintainer to check the OAuth redirect URI (see [DEPLOY.md](docs/DEPLOY.md)) |
+
+Web and CLI both register you for the **same** daily cloud sync. Use whichever is easier — you don’t need both.
 
 ---
 

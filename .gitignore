@@ -6,6 +6,10 @@
 /jobsync
 *.exe
 
+# Web
+web/node_modules/
+web/dist/
+
 # Local / user secrets (never commit)
 .env
 .env.*

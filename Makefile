@@ -1,4 +1,4 @@
-.PHONY: build run test tidy clean build-server release
+.PHONY: build run test tidy clean build-server release web
 
 BINARY := bin/jobsync
 SERVER_BINARY := bin/jobsync-server
@@ -22,7 +22,12 @@ build:
 	@test -f $(OAUTH_JSON) || (echo "Missing $(OAUTH_JSON) — copy oauth_client.json.example and fill in (see docs/DEPLOY.md)" >&2; exit 1)
 	go build -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/jobsync
 
-build-server:
+web:
+	cd web && npm install && npm run build
+	rm -rf internal/cloud/server/webdist/*
+	cp -R web/dist/. internal/cloud/server/webdist/
+
+build-server: web
 	go build -o $(SERVER_BINARY) ./cmd/server
 
 release:
@@ -43,4 +48,4 @@ tidy:
 	go mod tidy
 
 clean:
-	rm -rf bin/ dist/
+	rm -rf bin/ dist/ web/dist/ web/node_modules/

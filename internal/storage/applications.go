@@ -146,6 +146,25 @@ func (db *DB) MarkEmailProcessed(ctx context.Context, rec domain.EmailProcessed)
 	return nil
 }
 
+// ForgetIgnoredEmails drops "ignored" records at or after since so a rescan can
+// re-evaluate them. Job updates are kept, since re-extracting them wastes quota.
+func (db *DB) ForgetIgnoredEmails(ctx context.Context, since time.Time) (int, error) {
+	res, err := db.SQL.ExecContext(ctx, `
+		DELETE FROM email_processed
+		WHERE classification IN (?, ?) AND processed_at >= ?`,
+		domain.ClassificationIgnored, domain.ClassificationError,
+		since.UTC().Format(timeLayout),
+	)
+	if err != nil {
+		return 0, fmt.Errorf("forget ignored emails: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, nil
+	}
+	return int(n), nil
+}
+
 // IsEmailProcessed reports whether a Gmail message was already handled.
 func (db *DB) IsEmailProcessed(ctx context.Context, gmailMessageID string) (bool, error) {
 	var one int

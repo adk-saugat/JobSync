@@ -18,7 +18,7 @@ import (
 const (
 	DefaultModel           = "gemini-3.6-flash"
 	DefaultBodyCharLimit   = 3000
-	DefaultMaxOutputTokens = 512
+	DefaultMaxOutputTokens = 1536
 	DefaultMinConfidence   = 0.6
 	apiBase                = "https://generativelanguage.googleapis.com/v1beta"
 )

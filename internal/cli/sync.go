@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/saugatadhikari/jobSync/internal/config"
 	"github.com/saugatadhikari/jobSync/internal/gemini"
@@ -17,6 +18,7 @@ import (
 func runSync(args []string) error {
 	dryRun := false
 	limit := int64(0)
+	var since time.Time
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--dry-run":
@@ -31,9 +33,21 @@ func runSync(args []string) error {
 				return fmt.Errorf("invalid --limit %q", args[i])
 			}
 			limit = n
+		case "--since":
+			if i+1 >= len(args) {
+				return fmt.Errorf("--since requires a date (YYYY-MM-DD)")
+			}
+			i++
+			t, err := time.Parse("2006-01-02", args[i])
+			if err != nil {
+				return fmt.Errorf("invalid --since %q (use YYYY-MM-DD)", args[i])
+			}
+			since = t.UTC()
 		case "--help", "-h":
 			fmt.Println(`Usage:
-  jobsync sync [--limit N] [--dry-run]`)
+  jobsync sync [--limit N] [--dry-run] [--since YYYY-MM-DD]
+
+  --since  rescan mail from this date, even if an earlier sync skipped it`)
 			return nil
 		default:
 			return fmt.Errorf("unknown sync flag %q", args[i])
@@ -42,10 +56,10 @@ func runSync(args []string) error {
 	if limit == 0 {
 		limit = 15
 	}
-	return runFullSync(limit, dryRun)
+	return runFullSync(limit, dryRun, since)
 }
 
-func runFullSync(limit int64, dryRun bool) error {
+func runFullSync(limit int64, dryRun bool, since time.Time) error {
 	ctx := context.Background()
 
 	cfg, err := config.Load()
@@ -90,6 +104,14 @@ func runFullSync(limit int64, dryRun bool) error {
 		return err
 	}
 
+	if !since.IsZero() && !dryRun {
+		n, err := database.ForgetIgnoredEmails(ctx, since)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("Rescanning from %s (cleared %d skipped/errored records)\n", since.Format("2006-01-02"), n)
+	}
+
 	mode := "full"
 	if dryRun {
 		mode = "dry-run (no writes)"
@@ -110,6 +132,7 @@ func runFullSync(limit int64, dryRun bool) error {
 	res, err := runner.Run(ctx, syncer.Options{
 		Limit:  limit,
 		DryRun: dryRun,
+		Since:  since,
 	})
 	if res != nil {
 		fmt.Println()

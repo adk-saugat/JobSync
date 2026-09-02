@@ -1,9 +1,9 @@
 # JobSync Privacy Policy
 
-**Last updated:** August 23, 2026  
+**Last updated:** September 2, 2026  
 **Contact:** adhikarisaugat34@gmail.com
 
-JobSync is a command-line tool that helps you track job applications by reading relevant Gmail messages and updating a Google Sheet you own.
+JobSync helps you track job applications by reading relevant Gmail messages and updating a Google Sheet you own. You can set it up in the browser or with the command-line tool.
 
 ---
 
@@ -28,9 +28,11 @@ JobSync does **not** send email, delete mail, or access Gmail labels beyond what
 - Spreadsheet ID and app settings
 - Local SQLite database (processed message IDs and application rows for manual sync)
 
-### If you use cloud sync (`jobsync cloud push`)
+### If you use cloud sync (web setup or `jobsync cloud push`)
 
 With your permission, the same credentials and settings above are stored in the maintainer’s **Neon Postgres** database so daily sync can run on a server. Each user’s data is isolated by account id (derived from your Gmail address).
+
+Web setup stores a short-lived encrypted session cookie only while you finish Google sign-in and paste your Gemini key; it is cleared when setup completes.
 
 The maintainer does **not** sell or share your data with third parties for advertising.
 
@@ -57,8 +59,8 @@ Email content sent to Gemini is limited to what is needed for extraction. JobSyn
 ## Your choices
 
 - **Stop using JobSync** — delete `~/.config/jobsync/` and revoke app access in your Google Account
-- **Cloud sync only** — run `jobsync init` locally once; daily sync runs on the server
-- **No cloud** — use `jobsync sync` manually; nothing is sent to Neon unless you run `cloud push`
+- **Cloud sync only** — finish web setup or run `jobsync init` + `jobsync cloud push`; daily sync runs on the server
+- **No cloud** — use `jobsync sync` manually; nothing is sent to Neon unless you complete cloud registration
 
 ---
 

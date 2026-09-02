@@ -40,7 +40,7 @@ Usage:
 
 Commands:
   init      Google sign-in, Sheet setup, Gemini key
-  sync      Full sync (--dry-run, --limit)
+  sync      Full sync (--dry-run, --limit, --since)
   status    Show spreadsheet, auth, Gemini, cloud sync
   cloud     Register for hosted daily sync (cloud push)
   version   Show version

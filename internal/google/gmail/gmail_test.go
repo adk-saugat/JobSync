@@ -13,6 +13,8 @@ func TestLooksLikeStatusUpdate(t *testing.T) {
 		{"Unfortunately we will not move forward", "hr@x.com", true},
 		{"HackerRank invitation", "no-reply@hackerrank.com", true},
 		{"Complete your interview to stay in consideration", "support@micro1.ai", true},
+		{"Saugat Adhikari, You're invited! Assessment for Software Engineer Intern (Recommendation Infra, Performance Efficiency) - 2027 Summer - TikTok Early Careers", "TikTok <job@careers.tiktok.com>", true},
+		{"Complete your assessment — Software Engineer", "no-reply@codility.com", true},
 		{"Weekly newsletter", "news@foo.com", false},
 		{"10 new jobs for you", "alerts@indeed.com", false},
 		{"Jobs you may be interested in", "jobs-noreply@linkedin.com", false},
