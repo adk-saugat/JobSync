@@ -1,6 +1,9 @@
 export type SetupSession = {
   signed_in: boolean;
   email?: string;
+  registered?: boolean;
+  spreadsheet_url?: string;
+  next_run?: string;
 };
 
 export type SetupCompleteResponse = {
@@ -9,6 +12,11 @@ export type SetupCompleteResponse = {
   spreadsheet_url: string;
   status: string;
   reused_sheet?: boolean;
+  sync_status?: string;
+  emails_created?: number;
+  emails_updated?: number;
+  quota_exhausted?: boolean;
+  sync_error?: string;
 };
 
 export async function fetchSession(): Promise<SetupSession> {

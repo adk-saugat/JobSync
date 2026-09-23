@@ -17,10 +17,10 @@ import (
 
 // Options configures one sync run.
 type Options struct {
-	Limit      int64         // max Gemini calls (default 15)
-	DryRun     bool          // no SQLite / Sheets writes
+	Limit       int64         // max Gemini calls (default 15)
+	DryRun      bool          // no SQLite / Sheets writes
 	MinInterval time.Duration // pause between Gemini calls
-	Query      string
+	Query       string
 	// Since overrides the stored watermark, so mail already behind it is
 	// scanned again. Used by `jobsync sync --since` to recover missed mail.
 	Since time.Time
@@ -65,9 +65,6 @@ type SheetsAPI interface {
 type Store interface {
 	IsEmailProcessed(ctx context.Context, gmailMessageID string) (bool, error)
 	MarkEmailProcessed(ctx context.Context, rec domain.EmailProcessed) error
-	FindByCompanyAndPosition(ctx context.Context, company, position string) (*domain.Application, error)
-	CreateApplication(ctx context.Context, app *domain.Application) error
-	UpdateApplication(ctx context.Context, app *domain.Application) error
 	GetLastSuccessfulWatermark(ctx context.Context) (string, error)
 	CreateSyncRun(ctx context.Context, run *domain.SyncRun) error
 	FinishSyncRun(ctx context.Context, run *domain.SyncRun) error
@@ -210,6 +207,15 @@ func (r *Runner) Run(ctx context.Context, opts Options) (*Result, error) {
 				markPending(msg.Date)
 				break
 			}
+			if errors.Is(err, gemini.ErrTransient) {
+				// Don't mark processed — retry on the next sync.
+				res.Errors++
+				errNotes = append(errNotes, err.Error())
+				r.logf("Gemini busy, will retry later: %s", msg.Subject)
+				markPending(msg.Date)
+				time.Sleep(opts.MinInterval)
+				continue
+			}
 			res.Errors++
 			errNotes = append(errNotes, err.Error())
 			if !opts.DryRun {
@@ -243,7 +249,7 @@ func (r *Runner) Run(ctx context.Context, opts Options) (*Result, error) {
 			continue
 		}
 
-		created, updated, appID, err := r.upsert(ctx, msg, ext, opts.DryRun)
+		created, updated, err := r.upsert(ctx, msg, ext, opts.DryRun)
 		if err != nil {
 			res.Errors++
 			errNotes = append(errNotes, err.Error())
@@ -271,7 +277,6 @@ func (r *Runner) Run(ctx context.Context, opts Options) (*Result, error) {
 		if !opts.DryRun {
 			_ = r.DB.MarkEmailProcessed(ctx, domain.EmailProcessed{
 				GmailMessageID: msg.ID,
-				ApplicationID:  &appID,
 				Classification: domain.ClassificationJobUpdate,
 			})
 		}
@@ -315,131 +320,72 @@ func (r *Runner) finish(ctx context.Context, run *domain.SyncRun, res *Result, d
 	_ = r.DB.FinishSyncRun(ctx, run)
 }
 
-func (r *Runner) upsert(ctx context.Context, msg *gmail.Message, ext *gemini.Extraction, dryRun bool) (created, updated bool, appID string, err error) {
+// upsert treats the Google Sheet as the only record of applications.
+func (r *Runner) upsert(ctx context.Context, msg *gmail.Message, ext *gemini.Extraction, dryRun bool) (created, updated bool, err error) {
 	company := strings.TrimSpace(ext.Company)
 	position := strings.TrimSpace(ext.Position)
 	if company == "" || position == "" {
-		return false, false, "", fmt.Errorf("missing company/position")
+		return false, false, fmt.Errorf("missing company/position")
 	}
 
-	existing, err := r.DB.FindByCompanyAndPosition(ctx, company, position)
+	notes := ext.Summary
+	if notes == "" {
+		notes = msg.Snippet
+	}
+	if len(notes) > 280 {
+		notes = notes[:280]
+	}
+	appliedAt := formatDate(parseFlexibleTime(ext.AppliedAt))
+	interviewAt := formatDate(parseFlexibleTime(ext.InterviewAt))
+	oaAt := formatDate(parseFlexibleTime(ext.OAAt))
+
+	existing, err := r.Sheets.FindByCompanyAndPosition(ctx, company, position)
 	if err != nil {
-		return false, false, "", err
-	}
-
-	appliedAt := parseFlexibleTime(ext.AppliedAt)
-	interviewAt := parseFlexibleTime(ext.InterviewAt)
-	oaAt := parseFlexibleTime(ext.OAAt)
-	excerpt := ext.Summary
-	if excerpt == "" {
-		excerpt = msg.Snippet
-	}
-	if len(excerpt) > 280 {
-		excerpt = excerpt[:280]
+		return false, false, err
 	}
 
 	if existing == nil {
-		// Sheet is shared across local + cloud DBs. Reclaim an existing sheet row
-		// so we update instead of appending a duplicate.
-		sheetRow, err := r.Sheets.FindByCompanyAndPosition(ctx, company, position)
-		if err != nil {
-			return false, false, "", err
+		if !dryRun {
+			err = r.Sheets.WriteRow(ctx, sheets.Row{
+				RowID:       uuid.NewString(),
+				Company:     company,
+				Position:    position,
+				Status:      ext.Status,
+				AppliedAt:   appliedAt,
+				InterviewAt: interviewAt,
+				OAAt:        oaAt,
+				Notes:       notes,
+			})
 		}
-		rowID := uuid.NewString()
-		status := ext.Status
-		if sheetRow != nil {
-			if strings.TrimSpace(sheetRow.RowID) != "" {
-				rowID = strings.TrimSpace(sheetRow.RowID)
-			}
-			if !domain.ShouldUpdateStatus(sheetRow.Status, ext.Status) && sheetRow.Status != "" {
-				status = sheetRow.Status
-			}
-		}
-		app := &domain.Application{
-			Company:       company,
-			Position:      position,
-			Status:        status,
-			AppliedAt:     appliedAt,
-			InterviewAt:   interviewAt,
-			OAAt:          oaAt,
-			SourceEmailID: msg.ID,
-			SheetRowID:    rowID,
-			RawExcerpt:    excerpt,
-		}
-		if dryRun {
-			if sheetRow != nil {
-				return false, true, rowID, nil
-			}
-			return true, false, rowID, nil
-		}
-		if err := r.DB.CreateApplication(ctx, app); err != nil {
-			return false, false, "", err
-		}
-		if err := r.Sheets.WriteRow(ctx, toSheetRow(app)); err != nil {
-			return false, false, "", err
-		}
-		if sheetRow != nil {
-			return false, true, app.ID, nil
-		}
-		return true, false, app.ID, nil
+		return err == nil, false, err
 	}
 
+	row := *existing
 	changed := false
-	if domain.ShouldUpdateStatus(existing.Status, ext.Status) {
-		existing.Status = ext.Status
-		changed = true
+	set := func(field *string, value string, ok bool) {
+		if ok && value != "" && *field != value {
+			*field = value
+			changed = true
+		}
 	}
-	if existing.AppliedAt == nil && appliedAt != nil {
-		existing.AppliedAt = appliedAt
-		changed = true
+	if row.RowID == "" {
+		set(&row.RowID, uuid.NewString(), true)
 	}
-	if existing.InterviewAt == nil && interviewAt != nil {
-		existing.InterviewAt = interviewAt
-		changed = true
-	}
-	if existing.OAAt == nil && oaAt != nil {
-		existing.OAAt = oaAt
-		changed = true
-	}
-	if existing.SourceEmailID == "" {
-		existing.SourceEmailID = msg.ID
-		changed = true
-	}
-	if excerpt != "" && existing.RawExcerpt != excerpt {
-		existing.RawExcerpt = excerpt
-		changed = true
-	}
-	if existing.SheetRowID == "" {
-		existing.SheetRowID = uuid.NewString()
-		changed = true
-	}
+	set(&row.Status, ext.Status, domain.ShouldUpdateStatus(row.Status, ext.Status))
+	set(&row.AppliedAt, appliedAt, row.AppliedAt == "")
+	set(&row.InterviewAt, interviewAt, row.InterviewAt == "")
+	set(&row.OAAt, oaAt, row.OAAt == "")
+	set(&row.Notes, notes, true)
 
 	if !changed {
-		return false, false, existing.ID, nil
+		return false, false, nil
 	}
-	if dryRun {
-		return false, true, existing.ID, nil
+	if !dryRun {
+		if err := r.Sheets.WriteRow(ctx, row); err != nil {
+			return false, false, err
+		}
 	}
-	if err := r.DB.UpdateApplication(ctx, existing); err != nil {
-		return false, false, "", err
-	}
-	if err := r.Sheets.WriteRow(ctx, toSheetRow(existing)); err != nil {
-		return false, false, "", err
-	}
-	return false, true, existing.ID, nil
-}
-
-func toSheetRow(app *domain.Application) sheets.Row {
-	return sheets.Row{
-		RowID:       app.SheetRowID,
-		Company:     app.Company,
-		Position:    app.Position,
-		Status:      app.Status,
-		AppliedAt:   formatDate(app.AppliedAt),
-		InterviewAt: formatDate(app.InterviewAt),
-		OAAt:        formatDate(app.OAAt),
-		Notes:       app.RawExcerpt,
-	}
+	return false, true, nil
 }
 
 func formatDate(t *time.Time) string {

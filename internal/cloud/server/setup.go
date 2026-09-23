@@ -1,10 +1,8 @@
 package server
 
 import (
-	"crypto/aes"
-	"crypto/cipher"
+	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -18,14 +16,16 @@ import (
 
 	"golang.org/x/oauth2"
 
+	"github.com/saugatadhikari/jobSync/internal/cloud/secret"
 	"github.com/saugatadhikari/jobSync/internal/cloud/service"
 	"github.com/saugatadhikari/jobSync/internal/google/auth"
+	"github.com/saugatadhikari/jobSync/internal/google/sheets"
 )
 
 const (
-	setupCookieName = "jobsync_setup"
+	setupCookieName  = "jobsync_setup"
 	setupStateCookie = "jobsync_oauth_state"
-	setupCookieTTL  = 30 * time.Minute
+	setupCookieTTL   = 30 * time.Minute
 )
 
 type setupSession struct {
@@ -127,10 +127,21 @@ func (s *Server) handleSetupSession(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"signed_in": false})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	out := map[string]any{
 		"signed_in": true,
 		"email":     sess.Email,
-	})
+	}
+	if s.DB != nil {
+		acc, err := s.DB.Store(auth.AccountIDFromEmail(sess.Email)).GetAccount(r.Context())
+		if err != nil {
+			log.Printf("setup session lookup: %v", err)
+		} else if acc.HasSpreadsheet() {
+			out["registered"] = true
+			out["spreadsheet_url"] = sheets.SpreadsheetURL(acc.SpreadsheetID)
+			out["next_run"] = s.nextSyncRun()
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) handleSetupComplete(w http.ResponseWriter, r *http.Request) {
@@ -146,7 +157,8 @@ func (s *Server) handleSetupComplete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx := r.Context()
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Minute)
+	defer cancel()
 	out, err := service.CompleteWebSetup(ctx, s.DB, []byte(sess.TokenJSON), req.GeminiAPIKey)
 	if err != nil {
 		log.Printf("setup complete error: %v", err)
@@ -213,7 +225,7 @@ func (s *Server) setSetupCookie(w http.ResponseWriter, r *http.Request, sess set
 	if err != nil {
 		return err
 	}
-	enc, err := seal(s.SyncSecret, raw)
+	enc, err := secret.Encrypt(s.SyncSecret, string(raw))
 	if err != nil {
 		return err
 	}
@@ -234,12 +246,12 @@ func (s *Server) readSetupCookie(r *http.Request) (*setupSession, error) {
 	if err != nil || c.Value == "" {
 		return nil, fmt.Errorf("missing session")
 	}
-	raw, err := open(s.SyncSecret, c.Value)
+	plain, err := secret.Decrypt(s.SyncSecret, c.Value)
 	if err != nil {
 		return nil, err
 	}
 	var sess setupSession
-	if err := json.Unmarshal(raw, &sess); err != nil {
+	if err := json.Unmarshal([]byte(plain), &sess); err != nil {
 		return nil, err
 	}
 	if sess.Exp > 0 && time.Now().Unix() > sess.Exp {
@@ -257,43 +269,4 @@ func randomState() (string, error) {
 		return "", err
 	}
 	return base64.RawURLEncoding.EncodeToString(b), nil
-}
-
-func seal(secret string, plaintext []byte) (string, error) {
-	key := sha256.Sum256([]byte(secret))
-	block, err := aes.NewCipher(key[:])
-	if err != nil {
-		return "", err
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", err
-	}
-	nonce := make([]byte, gcm.NonceSize())
-	if _, err := rand.Read(nonce); err != nil {
-		return "", err
-	}
-	out := gcm.Seal(nonce, nonce, plaintext, nil)
-	return base64.RawURLEncoding.EncodeToString(out), nil
-}
-
-func open(secret, encoded string) ([]byte, error) {
-	raw, err := base64.RawURLEncoding.DecodeString(encoded)
-	if err != nil {
-		return nil, err
-	}
-	key := sha256.Sum256([]byte(secret))
-	block, err := aes.NewCipher(key[:])
-	if err != nil {
-		return nil, err
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, err
-	}
-	if len(raw) < gcm.NonceSize() {
-		return nil, fmt.Errorf("ciphertext too short")
-	}
-	nonce, ciphertext := raw[:gcm.NonceSize()], raw[gcm.NonceSize():]
-	return gcm.Open(nil, nonce, ciphertext, nil)
 }

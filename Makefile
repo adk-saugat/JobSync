@@ -1,4 +1,4 @@
-.PHONY: build run test tidy clean build-server release web
+.PHONY: build run tidy clean build-server release web
 
 BINARY := bin/jobsync
 SERVER_BINARY := bin/jobsync-server
@@ -40,9 +40,6 @@ release:
 
 run: build
 	./$(BINARY) $(ARGS)
-
-test:
-	go test ./...
 
 tidy:
 	go mod tidy

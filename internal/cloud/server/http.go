@@ -2,9 +2,11 @@ package server
 
 import (
 	"context"
+	"embed"
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -12,15 +14,21 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-co-op/gocron/v2"
+
 	"github.com/saugatadhikari/jobSync/internal/cloud/client"
 	"github.com/saugatadhikari/jobSync/internal/cloud/service"
 	"github.com/saugatadhikari/jobSync/internal/cloud/store"
 )
 
+//go:embed all:webdist
+var webDist embed.FS
+
 // Server is the Cloud Run HTTP API.
 type Server struct {
 	SyncSecret string
 	DB         *store.DB
+	syncJob    gocron.Job
 }
 
 // NewFromEnv builds a server from environment variables.
@@ -217,4 +225,26 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+func (s *Server) spaHandler() http.Handler {
+	sub, err := fs.Sub(webDist, "webdist")
+	if err != nil {
+		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, "web ui not embedded", http.StatusNotFound)
+		})
+	}
+	fileServer := http.FileServer(http.FS(sub))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimPrefix(r.URL.Path, "/")
+		if path == "" {
+			path = "index.html"
+		}
+		if _, err := fs.Stat(sub, path); err != nil {
+			r.URL.Path = "/"
+			fileServer.ServeHTTP(w, r)
+			return
+		}
+		fileServer.ServeHTTP(w, r)
+	})
 }

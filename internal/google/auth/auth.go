@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"regexp"
 	"runtime"
 	"strings"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/gmail/v1"
+	"google.golang.org/api/option"
 	"google.golang.org/api/sheets/v4"
 
 	"github.com/saugatadhikari/jobSync/internal/config"
@@ -396,4 +398,32 @@ func openBrowser(url string) error {
 		cmd = exec.Command("xdg-open", url)
 	}
 	return cmd.Start()
+}
+
+func GoogleEmailFromTokenJSON(ctx context.Context, tokenJSON []byte) (string, error) {
+	client, err := HTTPClientFromStoredToken(ctx, string(tokenJSON), nil)
+	if err != nil {
+		return "", err
+	}
+	svc, err := gmail.NewService(ctx, option.WithHTTPClient(client))
+	if err != nil {
+		return "", fmt.Errorf("gmail service: %w", err)
+	}
+	profile, err := svc.Users.GetProfile("me").Context(ctx).Do()
+	if err != nil {
+		return "", fmt.Errorf("gmail profile: %w", err)
+	}
+	email := strings.TrimSpace(profile.EmailAddress)
+	if email == "" {
+		return "", fmt.Errorf("gmail profile: email missing")
+	}
+	return email, nil
+}
+
+var accountIDSanitizer = regexp.MustCompile(`[^a-z0-9._+-]+`)
+
+func AccountIDFromEmail(email string) string {
+	email = strings.ToLower(strings.TrimSpace(email))
+	email = strings.ReplaceAll(email, "@", "_at_")
+	return accountIDSanitizer.ReplaceAllString(email, "_")
 }

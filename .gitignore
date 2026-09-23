@@ -9,6 +9,7 @@
 # Web
 web/node_modules/
 web/dist/
+internal/cloud/server/webdist/assets/
 
 # Local / user secrets (never commit)
 .env

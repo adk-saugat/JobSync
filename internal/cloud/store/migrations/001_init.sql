@@ -12,33 +12,9 @@ CREATE TABLE IF NOT EXISTS accounts (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS applications (
-    id TEXT PRIMARY KEY NOT NULL,
-    account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-    company TEXT NOT NULL,
-    position TEXT NOT NULL,
-    status TEXT NOT NULL,
-    applied_at TIMESTAMPTZ,
-    interview_at TIMESTAMPTZ,
-    oa_at TIMESTAMPTZ,
-    source_email_id TEXT,
-    sheet_row_id TEXT,
-    raw_excerpt TEXT NOT NULL DEFAULT '',
-    created_at TIMESTAMPTZ NOT NULL,
-    updated_at TIMESTAMPTZ NOT NULL
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS idx_applications_account_source_email
-    ON applications (account_id, source_email_id)
-    WHERE source_email_id IS NOT NULL;
-
-CREATE INDEX IF NOT EXISTS idx_applications_account_company_position
-    ON applications (account_id, lower(company), lower(position));
-
 CREATE TABLE IF NOT EXISTS email_processed (
     account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
     gmail_message_id TEXT NOT NULL,
-    application_id TEXT REFERENCES applications(id),
     processed_at TIMESTAMPTZ NOT NULL,
     classification TEXT NOT NULL,
     PRIMARY KEY (account_id, gmail_message_id)
@@ -61,3 +37,7 @@ CREATE TABLE IF NOT EXISTS sync_runs (
 
 CREATE INDEX IF NOT EXISTS idx_sync_runs_account_started
     ON sync_runs (account_id, started_at DESC);
+
+-- Applications live only in the user's Google Sheet.
+ALTER TABLE email_processed DROP COLUMN IF EXISTS application_id;
+DROP TABLE IF EXISTS applications;

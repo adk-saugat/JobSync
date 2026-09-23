@@ -2,8 +2,13 @@ package cli
 
 import (
 	"fmt"
+	"runtime"
 	"strings"
+
+	"github.com/saugatadhikari/jobSync/internal/config"
 )
+
+var Version = "dev"
 
 // Run dispatches CLI commands.
 func Run(args []string) error {
@@ -45,4 +50,11 @@ Commands:
   cloud     Register for hosted daily sync (cloud push)
   version   Show version
   help      Show this help`)
+}
+
+func runVersion(args []string) error {
+	_ = args
+	fmt.Printf("jobsync %s (%s/%s)\n", Version, runtime.GOOS, runtime.GOARCH)
+	fmt.Printf("gemini default: %s\n", config.DefaultGeminiModel)
+	return nil
 }

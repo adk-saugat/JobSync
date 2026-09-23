@@ -60,11 +60,6 @@ func Decrypt(key, value string) (string, error) {
 	return string(raw), nil
 }
 
-// IsEncrypted reports whether value looks like Encrypt() output.
-func IsEncrypted(value string) bool {
-	return strings.HasPrefix(strings.TrimSpace(value), prefixV1)
-}
-
 func seal(keyMaterial, plaintext []byte) (string, error) {
 	sum := sha256.Sum256(keyMaterial)
 	block, err := aes.NewCipher(sum[:])

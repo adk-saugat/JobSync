@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/saugatadhikari/jobSync/internal/config"
 	"github.com/saugatadhikari/jobSync/internal/cloud/server"
+	"github.com/saugatadhikari/jobSync/internal/config"
 )
 
 func main() {
@@ -23,6 +23,12 @@ func main() {
 		log.Fatalf("server init: %v", err)
 	}
 	defer func() { _ = srv.DB.Close() }()
+
+	stop, err := srv.StartScheduler()
+	if err != nil {
+		log.Fatalf("scheduler: %v", err)
+	}
+	defer func() { _ = stop() }()
 
 	addr := ":" + port
 	log.Printf("jobsync server listening on %s", addr)

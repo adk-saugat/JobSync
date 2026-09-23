@@ -11,7 +11,6 @@ import (
 	"time"
 )
 
-// RegisterRequest is sent by the CLI to POST /register.
 type RegisterRequest struct {
 	SpreadsheetID     string `json:"spreadsheet_id"`
 	SheetName         string `json:"sheet_name"`
@@ -21,27 +20,28 @@ type RegisterRequest struct {
 	AuthScopesVersion int    `json:"auth_scopes_version"`
 }
 
-// RegisterResponse is returned after a successful registration.
 type RegisterResponse struct {
 	AccountID string `json:"account_id"`
 	Status    string `json:"status"`
 }
 
-// SetupCompleteResponse is returned by the web setup wizard.
 type SetupCompleteResponse struct {
 	AccountID      string `json:"account_id"`
 	SpreadsheetID  string `json:"spreadsheet_id"`
 	SpreadsheetURL string `json:"spreadsheet_url"`
 	Status         string `json:"status"`
 	ReusedSheet    bool   `json:"reused_sheet"`
+	SyncStatus     string `json:"sync_status,omitempty"`
+	EmailsCreated  int    `json:"emails_created,omitempty"`
+	EmailsUpdated  int    `json:"emails_updated,omitempty"`
+	QuotaExhausted bool   `json:"quota_exhausted,omitempty"`
+	SyncError      string `json:"sync_error,omitempty"`
 }
 
-// LookupRequest asks the server for an existing cloud registration.
 type LookupRequest struct {
 	OAuthTokenJSON string `json:"oauth_token_json"`
 }
 
-// LookupResponse is returned by POST /lookup.
 type LookupResponse struct {
 	Found         bool   `json:"found"`
 	AccountID     string `json:"account_id,omitempty"`
@@ -50,47 +50,10 @@ type LookupResponse struct {
 	HasGeminiKey  bool   `json:"has_gemini_key,omitempty"`
 }
 
-// Register posts account credentials to the hosted JobSync server.
-// The Google OAuth token from init proves identity — no shared secret required.
 func Register(ctx context.Context, serverURL string, req RegisterRequest) (*RegisterResponse, error) {
-	serverURL = strings.TrimRight(strings.TrimSpace(serverURL), "/")
-	if serverURL == "" {
-		return nil, fmt.Errorf("cloud server URL is empty")
-	}
-
-	body, err := json.Marshal(req)
-	if err != nil {
-		return nil, err
-	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, serverURL+"/register", bytes.NewReader(body))
-	if err != nil {
-		return nil, err
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: 2 * time.Minute}
-	resp, err := client.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("register request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode != http.StatusOK {
-		msg := strings.TrimSpace(string(respBody))
-		if msg == "" {
-			msg = resp.Status
-		}
-		return nil, fmt.Errorf("register failed (%d): %s", resp.StatusCode, msg)
-	}
-
 	var out RegisterResponse
-	if err := json.Unmarshal(respBody, &out); err != nil {
-		return nil, fmt.Errorf("decode register response: %w", err)
+	if err := postJSON(ctx, serverURL, "/register", 2*time.Minute, req, &out); err != nil {
+		return nil, err
 	}
 	if strings.TrimSpace(out.AccountID) == "" {
 		return nil, fmt.Errorf("register response missing account_id")
@@ -98,44 +61,46 @@ func Register(ctx context.Context, serverURL string, req RegisterRequest) (*Regi
 	return &out, nil
 }
 
-// Lookup asks whether this Google account already has a cloud tracker sheet.
 func Lookup(ctx context.Context, serverURL string, oauthTokenJSON string) (*LookupResponse, error) {
+	var out LookupResponse
+	if err := postJSON(ctx, serverURL, "/lookup", 30*time.Second, LookupRequest{OAuthTokenJSON: oauthTokenJSON}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func postJSON(ctx context.Context, serverURL, path string, timeout time.Duration, payload, out any) error {
 	serverURL = strings.TrimRight(strings.TrimSpace(serverURL), "/")
 	if serverURL == "" {
-		return nil, fmt.Errorf("cloud server URL is empty")
+		return fmt.Errorf("cloud server URL is empty")
 	}
-	body, err := json.Marshal(LookupRequest{OAuthTokenJSON: oauthTokenJSON})
+	body, err := json.Marshal(payload)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, serverURL+"/lookup", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, serverURL+path, bytes.NewReader(body))
 	if err != nil {
-		return nil, err
+		return err
 	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	c := &http.Client{Timeout: 30 * time.Second}
-	resp, err := c.Do(httpReq)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := (&http.Client{Timeout: timeout}).Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("lookup request: %w", err)
+		return fmt.Errorf("%s: %w", strings.TrimPrefix(path, "/"), err)
 	}
 	defer resp.Body.Close()
-
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if resp.StatusCode != http.StatusOK {
 		msg := strings.TrimSpace(string(respBody))
 		if msg == "" {
 			msg = resp.Status
 		}
-		return nil, fmt.Errorf("lookup failed (%d): %s", resp.StatusCode, msg)
+		return fmt.Errorf("%s failed (%d): %s", strings.TrimPrefix(path, "/"), resp.StatusCode, msg)
 	}
-
-	var out LookupResponse
-	if err := json.Unmarshal(respBody, &out); err != nil {
-		return nil, fmt.Errorf("decode lookup response: %w", err)
+	if err := json.Unmarshal(respBody, out); err != nil {
+		return fmt.Errorf("decode %s response: %w", strings.TrimPrefix(path, "/"), err)
 	}
-	return &out, nil
+	return nil
 }

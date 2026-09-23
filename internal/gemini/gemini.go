@@ -26,6 +26,9 @@ const (
 // ErrQuotaExceeded means the AI Studio free-tier limit was hit.
 var ErrQuotaExceeded = errors.New("gemini quota exceeded")
 
+// ErrTransient means Gemini was temporarily unavailable (retry next sync).
+var ErrTransient = errors.New("gemini temporarily unavailable")
+
 // EmailInput is the truncated email content sent to Gemini.
 type EmailInput struct {
 	Subject string
@@ -50,12 +53,12 @@ type Extraction struct {
 
 // Client calls Gemini via Google AI Studio (API key).
 type Client struct {
-	apiKey         string
-	model          string
-	bodyCharLimit  int
-	maxOutTokens   int
-	minConfidence  float64
-	httpClient     *http.Client
+	apiKey        string
+	model         string
+	bodyCharLimit int
+	maxOutTokens  int
+	minConfidence float64
+	httpClient    *http.Client
 }
 
 // Options configures the Gemini client.
@@ -108,7 +111,7 @@ func (c *Client) MinConfidence() float64 { return c.minConfidence }
 
 // Extract asks Gemini to parse one email into structured fields.
 func (c *Client) Extract(ctx context.Context, in EmailInput) (*Extraction, error) {
-	body := Truncate(in.Body, c.bodyCharLimit)
+	body := truncate(in.Body, c.bodyCharLimit)
 	prompt := buildPrompt(in.Subject, in.From, in.Date, body)
 
 	reqBody := generateContentRequest{
@@ -157,6 +160,11 @@ func (c *Client) Extract(ctx context.Context, in EmailInput) (*Extraction, error
 			return nil, fmt.Errorf("%w: %s", ErrQuotaExceeded, shortErr(respBytes))
 		}
 	}
+	if resp.StatusCode == http.StatusBadGateway ||
+		resp.StatusCode == http.StatusServiceUnavailable ||
+		resp.StatusCode == http.StatusGatewayTimeout {
+		return nil, fmt.Errorf("%w: http %d: %s", ErrTransient, resp.StatusCode, shortErr(respBytes))
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("gemini http %d: %s", resp.StatusCode, shortErr(respBytes))
 	}
@@ -170,7 +178,7 @@ func (c *Client) Extract(ctx context.Context, in EmailInput) (*Extraction, error
 		return nil, fmt.Errorf("gemini returned empty content")
 	}
 
-	ext, err := ParseExtraction(text)
+	ext, err := parseExtraction(text)
 	if err != nil {
 		return nil, err
 	}
@@ -178,8 +186,7 @@ func (c *Client) Extract(ctx context.Context, in EmailInput) (*Extraction, error
 	return ext, nil
 }
 
-// ParseExtraction unmarshals model JSON (also used in tests).
-func ParseExtraction(text string) (*Extraction, error) {
+func parseExtraction(text string) (*Extraction, error) {
 	text = strings.TrimSpace(text)
 	text = strings.TrimPrefix(text, "```json")
 	text = strings.TrimPrefix(text, "```")
@@ -193,8 +200,7 @@ func ParseExtraction(text string) (*Extraction, error) {
 	return &ext, nil
 }
 
-// Truncate limits body size by runes (not bytes).
-func Truncate(s string, limit int) string {
+func truncate(s string, limit int) string {
 	if limit <= 0 || utf8.RuneCountInString(s) <= limit {
 		return s
 	}
@@ -305,9 +311,9 @@ Body:
 }
 
 type generateContentRequest struct {
-	Contents          []content         `json:"contents"`
-	GenerationConfig  generationConfig  `json:"generationConfig"`
-	SystemInstruction *content          `json:"systemInstruction,omitempty"`
+	Contents          []content        `json:"contents"`
+	GenerationConfig  generationConfig `json:"generationConfig"`
+	SystemInstruction *content         `json:"systemInstruction,omitempty"`
 }
 
 type generationConfig struct {

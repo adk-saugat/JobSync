@@ -1,7 +1,10 @@
 bin/
+dist/
 .git/
 *.db
 .env
 .env.*
 deploy.env.yaml
 internal/google/auth/oauth_client.json
+web/node_modules/
+web/dist/

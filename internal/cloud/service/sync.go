@@ -21,16 +21,16 @@ func RunCloudSync(ctx context.Context, st *store.Store, acc *domain.Account, lim
 		return nil, fmt.Errorf("store and account are required")
 	}
 	if !acc.HasGeminiKey() {
-		return nil, fmt.Errorf("account missing gemini_api_key — run jobsync cloud push")
+		return nil, fmt.Errorf("account missing gemini_api_key")
 	}
 	if !acc.HasSpreadsheet() {
-		return nil, fmt.Errorf("account missing spreadsheet_id — run jobsync cloud push")
+		return nil, fmt.Errorf("account missing spreadsheet_id")
 	}
 	if !acc.HasOAuthToken() {
-		return nil, fmt.Errorf("account missing oauth token — run jobsync cloud push")
+		return nil, fmt.Errorf("account missing oauth token")
 	}
 	if acc.AuthScopesVersion < auth.CurrentScopesVersion {
-		return nil, fmt.Errorf("google oauth scopes outdated — run jobsync init then jobsync cloud push")
+		return nil, fmt.Errorf("google oauth scopes outdated — sign in with Google again")
 	}
 	if limit <= 0 {
 		limit = DefaultSyncLimit
@@ -73,4 +73,61 @@ func RunCloudSync(ctx context.Context, st *store.Store, acc *domain.Account, lim
 		Limit:  limit,
 		DryRun: dryRun,
 	})
+}
+
+type AccountSyncResult struct {
+	AccountID string         `json:"account_id"`
+	Result    *syncer.Result `json:"result,omitempty"`
+	Error     string         `json:"error,omitempty"`
+}
+
+type SyncAllResult struct {
+	Accounts int                 `json:"accounts"`
+	Results  []AccountSyncResult `json:"results"`
+}
+
+func RunCloudSyncAll(ctx context.Context, db *store.DB, limit int64, dryRun bool, logf func(string, ...any)) (*SyncAllResult, error) {
+	if db == nil {
+		return nil, fmt.Errorf("database is required")
+	}
+	ids, err := db.ListAccountIDs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := &SyncAllResult{Accounts: len(ids)}
+	for _, id := range ids {
+		st := db.Store(id)
+		acc, err := st.GetAccount(ctx)
+		if err != nil {
+			out.Results = append(out.Results, AccountSyncResult{AccountID: id, Error: err.Error()})
+			continue
+		}
+		if acc == nil {
+			out.Results = append(out.Results, AccountSyncResult{AccountID: id, Error: "account not found"})
+			continue
+		}
+		res, err := RunCloudSync(ctx, st, acc, limit, dryRun, func(format string, args ...any) {
+			if logf != nil {
+				logf("[%s] "+format, append([]any{id}, args...)...)
+			}
+		})
+		item := AccountSyncResult{AccountID: id, Result: res}
+		if err != nil {
+			item.Error = err.Error()
+		}
+		out.Results = append(out.Results, item)
+	}
+	return out, nil
+}
+
+func RunCloudSyncForAccount(ctx context.Context, db *store.DB, accountID string, limit int64, dryRun bool, logf func(string, ...any)) (*syncer.Result, error) {
+	st := db.Store(accountID)
+	acc, err := st.GetAccount(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if acc == nil {
+		return nil, fmt.Errorf("account %q not found", accountID)
+	}
+	return RunCloudSync(ctx, st, acc, limit, dryRun, logf)
 }

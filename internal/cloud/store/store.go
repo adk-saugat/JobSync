@@ -85,27 +85,6 @@ func (db *DB) ListAccountIDs(ctx context.Context) ([]string, error) {
 	return ids, rows.Err()
 }
 
-// OpenStore opens Postgres and returns a store for accountID.
-func OpenStore(ctx context.Context, dsn, accountID string) (*Store, error) {
-	if strings.TrimSpace(accountID) == "" {
-		accountID = "default"
-	}
-	db, err := Open(ctx, dsn)
-	if err != nil {
-		return nil, err
-	}
-	return db.Store(accountID), nil
-}
-
-// Close closes the underlying database if this store owns the only reference.
-// Prefer closing the parent *DB when using multi-tenant mode.
-func (s *Store) Close() error {
-	if s == nil || s.SQL == nil {
-		return nil
-	}
-	return s.SQL.Close()
-}
-
 // OpenFromEnv connects using DATABASE_URL and returns a shared DB handle.
 func OpenFromEnv(ctx context.Context) (*DB, error) {
 	dsn := os.Getenv("DATABASE_URL")
@@ -113,6 +92,32 @@ func OpenFromEnv(ctx context.Context) (*DB, error) {
 		return nil, fmt.Errorf("DATABASE_URL is not set")
 	}
 	return Open(ctx, dsn)
+}
+
+const DailySyncLockKey int64 = 0x4A53594E // "JSYN"
+
+func (db *DB) TryAdvisoryLock(ctx context.Context, key int64) (unlock func(), ok bool, err error) {
+	if db == nil || db.SQL == nil {
+		return nil, false, fmt.Errorf("database is nil")
+	}
+	conn, err := db.SQL.Conn(ctx)
+	if err != nil {
+		return nil, false, fmt.Errorf("lock conn: %w", err)
+	}
+	var got bool
+	if err := conn.QueryRowContext(ctx, `SELECT pg_try_advisory_lock($1)`, key).Scan(&got); err != nil {
+		_ = conn.Close()
+		return nil, false, fmt.Errorf("advisory lock: %w", err)
+	}
+	if !got {
+		_ = conn.Close()
+		return func() {}, false, nil
+	}
+	unlock = func() {
+		_, _ = conn.ExecContext(context.Background(), `SELECT pg_advisory_unlock($1)`, key)
+		_ = conn.Close()
+	}
+	return unlock, true, nil
 }
 
 func migrate(ctx context.Context, db *sql.DB) error {

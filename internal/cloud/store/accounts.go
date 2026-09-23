@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -142,103 +141,17 @@ func decryptAccountSecrets(acc *domain.Account) error {
 	return nil
 }
 
-// AccountToConfig maps a cloud account to local config shape for reuse.
-func AccountToConfig(acc *domain.Account) *config.Config {
-	if acc == nil {
-		return &config.Config{}
-	}
-	return &config.Config{
-		SpreadsheetID:     acc.SpreadsheetID,
-		SheetName:         acc.SheetName,
-		GeminiAPIKey:      acc.GeminiAPIKey,
-		GeminiModel:       acc.GeminiModel,
-		AuthScopesVersion: acc.AuthScopesVersion,
-	}
-}
-
-// CreateApplication inserts a new application row.
-func (s *Store) CreateApplication(ctx context.Context, app *domain.Application) error {
-	now := time.Now().UTC()
-	if app.ID == "" {
-		app.ID = uuid.NewString()
-	}
-	if app.CreatedAt.IsZero() {
-		app.CreatedAt = now
-	}
-	if app.UpdatedAt.IsZero() {
-		app.UpdatedAt = now
-	}
-
-	_, err := s.SQL.ExecContext(ctx, `
-		INSERT INTO applications (
-			id, account_id, company, position, status,
-			applied_at, interview_at, oa_at,
-			source_email_id, sheet_row_id, raw_excerpt,
-			created_at, updated_at
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-		app.ID, s.AccountID,
-		app.Company, app.Position, app.Status,
-		formatTime(app.AppliedAt), formatTime(app.InterviewAt), formatTime(app.OAAt),
-		nullIfEmpty(app.SourceEmailID), nullIfEmpty(app.SheetRowID), app.RawExcerpt,
-		app.CreatedAt.UTC(), app.UpdatedAt.UTC(),
-	)
-	if err != nil {
-		return fmt.Errorf("create application: %w", err)
-	}
-	return nil
-}
-
-func (s *Store) FindByCompanyAndPosition(ctx context.Context, company, position string) (*domain.Application, error) {
-	row := s.SQL.QueryRowContext(ctx, `
-		SELECT id, company, position, status,
-			applied_at, interview_at, oa_at,
-			source_email_id, sheet_row_id, raw_excerpt,
-			created_at, updated_at
-		FROM applications
-		WHERE account_id = $1 AND lower(company) = lower($2) AND lower(position) = lower($3)
-		LIMIT 1`, s.AccountID, company, position)
-	return scanApplication(row)
-}
-
-func (s *Store) UpdateApplication(ctx context.Context, app *domain.Application) error {
-	app.UpdatedAt = time.Now().UTC()
-	res, err := s.SQL.ExecContext(ctx, `
-		UPDATE applications SET
-			company = $1, position = $2, status = $3,
-			applied_at = $4, interview_at = $5, oa_at = $6,
-			source_email_id = $7, sheet_row_id = $8, raw_excerpt = $9,
-			updated_at = $10
-		WHERE id = $11 AND account_id = $12`,
-		app.Company, app.Position, app.Status,
-		formatTime(app.AppliedAt), formatTime(app.InterviewAt), formatTime(app.OAAt),
-		nullIfEmpty(app.SourceEmailID), nullIfEmpty(app.SheetRowID), app.RawExcerpt,
-		app.UpdatedAt.UTC(), app.ID, s.AccountID,
-	)
-	if err != nil {
-		return fmt.Errorf("update application: %w", err)
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if n == 0 {
-		return fmt.Errorf("update application: not found")
-	}
-	return nil
-}
-
 func (s *Store) MarkEmailProcessed(ctx context.Context, rec domain.EmailProcessed) error {
 	if rec.ProcessedAt.IsZero() {
 		rec.ProcessedAt = time.Now().UTC()
 	}
 	_, err := s.SQL.ExecContext(ctx, `
-		INSERT INTO email_processed (account_id, gmail_message_id, application_id, processed_at, classification)
-		VALUES ($1,$2,$3,$4,$5)
+		INSERT INTO email_processed (account_id, gmail_message_id, processed_at, classification)
+		VALUES ($1,$2,$3,$4)
 		ON CONFLICT (account_id, gmail_message_id) DO UPDATE SET
-			application_id = EXCLUDED.application_id,
 			processed_at = EXCLUDED.processed_at,
 			classification = EXCLUDED.classification`,
-		s.AccountID, rec.GmailMessageID, rec.ApplicationID,
+		s.AccountID, rec.GmailMessageID,
 		rec.ProcessedAt.UTC(), rec.Classification,
 	)
 	if err != nil {
@@ -328,102 +241,9 @@ func (s *Store) GetLastSuccessfulWatermark(ctx context.Context) (string, error) 
 	return watermark, nil
 }
 
-func (s *Store) GetLastSyncRun(ctx context.Context) (*domain.SyncRun, error) {
-	row := s.SQL.QueryRowContext(ctx, `
-		SELECT id, started_at, finished_at, status,
-			emails_seen, emails_updated, errors,
-			gemini_calls, gemini_skipped_prefilter,
-			watermark, error_summary
-		FROM sync_runs
-		WHERE account_id = $1 AND finished_at IS NOT NULL
-		ORDER BY finished_at DESC
-		LIMIT 1`, s.AccountID)
-	return scanSyncRun(row)
-}
-
-type scannable interface {
-	Scan(dest ...any) error
-}
-
-func scanSyncRun(row scannable) (*domain.SyncRun, error) {
-	var (
-		run                     domain.SyncRun
-		finishedAt              sql.NullTime
-		watermark, errorSummary sql.NullString
-	)
-	err := row.Scan(
-		&run.ID, &run.StartedAt, &finishedAt, &run.Status,
-		&run.EmailsSeen, &run.EmailsUpdated, &run.Errors,
-		&run.GeminiCalls, &run.GeminiSkippedPrefilter,
-		&watermark, &errorSummary,
-	)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("scan sync run: %w", err)
-	}
-	if finishedAt.Valid {
-		t := finishedAt.Time
-		run.FinishedAt = &t
-	}
-	if watermark.Valid {
-		run.Watermark = watermark.String
-	}
-	if errorSummary.Valid {
-		run.ErrorSummary = errorSummary.String
-	}
-	return &run, nil
-}
-
-func scanApplication(row scannable) (*domain.Application, error) {
-	var (
-		app                       domain.Application
-		applied, interview, oa    sql.NullTime
-		sourceEmailID, sheetRowID sql.NullString
-	)
-	err := row.Scan(
-		&app.ID, &app.Company, &app.Position, &app.Status,
-		&applied, &interview, &oa,
-		&sourceEmailID, &sheetRowID, &app.RawExcerpt,
-		&app.CreatedAt, &app.UpdatedAt,
-	)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("scan application: %w", err)
-	}
-	app.AppliedAt = timePtr(applied)
-	app.InterviewAt = timePtr(interview)
-	app.OAAt = timePtr(oa)
-	if sourceEmailID.Valid {
-		app.SourceEmailID = sourceEmailID.String
-	}
-	if sheetRowID.Valid {
-		app.SheetRowID = sheetRowID.String
-	}
-	return &app, nil
-}
-
 func formatTime(t *time.Time) any {
 	if t == nil || t.IsZero() {
 		return nil
 	}
 	return t.UTC()
-}
-
-func timePtr(nt sql.NullTime) *time.Time {
-	if !nt.Valid {
-		return nil
-	}
-	t := nt.Time
-	return &t
-}
-
-func nullIfEmpty(s string) any {
-	if strings.TrimSpace(s) == "" {
-		return nil
-	}
-	return s
 }

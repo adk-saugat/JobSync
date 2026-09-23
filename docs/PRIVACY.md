@@ -26,11 +26,11 @@ JobSync does **not** send email, delete mail, or access Gmail labels beyond what
 - Google OAuth token (so you stay signed in)
 - Gemini API key (you provide this)
 - Spreadsheet ID and app settings
-- Local SQLite database (processed message IDs and application rows for manual sync)
+- Local SQLite database (processed message IDs and sync history for manual sync)
 
 ### If you use cloud sync (web setup or `jobsync cloud push`)
 
-With your permission, the same credentials and settings above are stored in the maintainer’s **Neon Postgres** database so daily sync can run on a server. Each user’s data is isolated by account id (derived from your Gmail address).
+With your permission, the same credentials and settings above are stored in the maintainer’s **Neon Postgres** database so daily sync can run on a server, along with processed message IDs and sync history. Each user’s data is isolated by account id (derived from your Gmail address). Your application details (company, role, status, notes) are kept only in your Google Sheet.
 
 Gemini API keys and Google OAuth tokens are **encrypted at rest** in the database (AES-GCM) using a server-side key. They are decrypted only in memory when a sync runs.
 

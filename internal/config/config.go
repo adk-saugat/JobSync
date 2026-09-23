@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -49,6 +50,58 @@ func Dir() (string, error) {
 	return filepath.Join(home, ".config", AppName), nil
 }
 
+func LoadDotEnv() {
+	for _, path := range dotEnvPaths() {
+		if err := loadDotEnvFile(path); err == nil {
+			return
+		}
+	}
+}
+
+func dotEnvPaths() []string {
+	var paths []string
+	if override := os.Getenv("JOBSYNC_CONFIG_DIR"); override != "" {
+		paths = append(paths, filepath.Join(override, ".env"))
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		paths = append(paths, filepath.Join(home, ".config", AppName, ".env"))
+	}
+	if cwd, err := os.Getwd(); err == nil {
+		paths = append(paths, filepath.Join(cwd, ".env"))
+	}
+	return paths
+}
+
+func loadDotEnvFile(path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+		if key == "" {
+			continue
+		}
+		value = strings.Trim(value, `"'`)
+		if os.Getenv(key) == "" {
+			_ = os.Setenv(key, value)
+		}
+	}
+	return scanner.Err()
+}
+
 // EnsureDir creates the config directory if needed.
 func EnsureDir() (string, error) {
 	dir, err := Dir()
@@ -61,41 +114,18 @@ func EnsureDir() (string, error) {
 	return dir, nil
 }
 
-// DBPath returns the default SQLite database path.
-func DBPath() (string, error) {
+func filePath(name string) (string, error) {
 	dir, err := Dir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, DBFile), nil
+	return filepath.Join(dir, name), nil
 }
 
-// TokenPath returns the OAuth token path.
-func TokenPath() (string, error) {
-	dir, err := Dir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, TokenFile), nil
-}
-
-// ClientSecretPath returns the Google OAuth client secret JSON path.
-func ClientSecretPath() (string, error) {
-	dir, err := Dir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, ClientSecretFile), nil
-}
-
-// ConfigPath returns the path to config.json.
-func ConfigPath() (string, error) {
-	dir, err := Dir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, ConfigFile), nil
-}
+func DBPath() (string, error)           { return filePath(DBFile) }
+func TokenPath() (string, error)        { return filePath(TokenFile) }
+func ClientSecretPath() (string, error) { return filePath(ClientSecretFile) }
+func ConfigPath() (string, error)       { return filePath(ConfigFile) }
 
 // Load reads config.json, or returns empty config if missing.
 func Load() (*Config, error) {

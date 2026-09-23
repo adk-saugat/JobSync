@@ -3,14 +3,14 @@ package domain
 
 import "time"
 
-// Application status values written to SQLite and Google Sheets.
+// Application status values written to Google Sheets.
 const (
-	StatusApplied     = "applied"
-	StatusAssessment  = "assessment" // online assessment / coding challenge
-	StatusInterview   = "interview"
-	StatusRejected    = "rejected"
-	StatusAccepted    = "accepted" // offer accepted / offer received
-	StatusOther       = "other"
+	StatusApplied    = "applied"
+	StatusAssessment = "assessment" // online assessment / coding challenge
+	StatusInterview  = "interview"
+	StatusRejected   = "rejected"
+	StatusAccepted   = "accepted" // offer accepted / offer received
+	StatusOther      = "other"
 
 	// Deprecated aliases (still recognized when reading old data / model output).
 	StatusOA    = StatusAssessment
@@ -32,26 +32,9 @@ const (
 	SyncStatusQuotaExhausted = "quota_exhausted"
 )
 
-// Application is one tracked job application.
-type Application struct {
-	ID            string
-	Company       string
-	Position      string
-	Status        string
-	AppliedAt     *time.Time
-	InterviewAt   *time.Time
-	OAAt          *time.Time
-	SourceEmailID string
-	SheetRowID    string
-	RawExcerpt    string
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
-}
-
 // EmailProcessed records that a Gmail message was handled (or ignored).
 type EmailProcessed struct {
 	GmailMessageID string
-	ApplicationID  *string
 	ProcessedAt    time.Time
 	Classification string
 }
@@ -94,4 +77,32 @@ func (a *Account) HasSpreadsheet() bool {
 
 func (a *Account) HasOAuthToken() bool {
 	return a != nil && a.OAuthTokenJSON != ""
+}
+
+func StatusRank(status string) int {
+	switch status {
+	case StatusApplied:
+		return 1
+	case StatusAssessment:
+		return 2
+	case StatusInterview:
+		return 3
+	case StatusAccepted:
+		return 4
+	default:
+		return 0
+	}
+}
+
+func ShouldUpdateStatus(current, next string) bool {
+	if next == "" || next == current {
+		return false
+	}
+	if next == StatusRejected {
+		return current != StatusAccepted
+	}
+	if current == StatusRejected {
+		return next == StatusAccepted
+	}
+	return StatusRank(next) > StatusRank(current)
 }

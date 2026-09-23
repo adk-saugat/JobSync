@@ -64,7 +64,9 @@ gcloud run deploy jobsync \
   --env-vars-file deploy.env.yaml \
   --allow-unauthenticated \
   --memory 512Mi \
-  --timeout 540
+  --timeout 540 \
+  --min-instances 1 \
+  --no-cpu-throttling
 ```
 
 Also set:
@@ -90,22 +92,24 @@ Flow: `/setup/oauth/start` → Google → paste Gemini key → creates Sheet + r
 
 ---
 
-## Cloud Scheduler
+## Daily sync (gocron)
 
-Daily sync for all users:
+The Cloud Run process runs [gocron](https://github.com/go-co-op/gocron) in-process. Default: `30 21 * * *` in `America/Chicago` (9:30pm). Override with `SYNC_CRON` / `SYNC_CRON_TZ`, or disable with `SYNC_CRON_DISABLE=true`.
+
+Cloud Run only gives idle CPU when an instance is kept warm:
+
+- `--min-instances 1`
+- `--no-cpu-throttling`
+
+Without those, the job will not fire when the service has scaled to zero.
+
+Manual run:
 
 ```bash
-gcloud scheduler jobs create http jobsync-daily \
-  --location us-central1 \
-  --project jobsync-506205 \
-  --schedule "30 21 * * *" \
-  --time-zone "America/Chicago" \
-  --uri "https://jobsync-b7ltqpwroa-uc.a.run.app/sync/all" \
-  --http-method POST \
-  --headers "Authorization=Bearer YOUR_SYNC_SECRET"
+curl -X POST "https://jobsync-b7ltqpwroa-uc.a.run.app/sync/all" \
+  -H "Authorization: Bearer YOUR_SYNC_SECRET" \
+  --max-time 600
 ```
-
-Test: `curl -X POST "https://jobsync-b7ltqpwroa-uc.a.run.app/sync/all" -H "Authorization: Bearer YOUR_SYNC_SECRET" --max-time 600`
 
 ---
 
